@@ -1,13 +1,13 @@
 # -*- coding: utf-8 -*-
 import os
 from pathlib import Path
+import base64
 import yaml
 from yaml.loader import SafeLoader
-import streamlit as st
-from dotenv import load_dotenv
 from PIL import Image
+import streamlit as st
 import streamlit_authenticator as stauth
-import base64
+from dotenv import load_dotenv
 
 # ------------------------------------------------------------
 # Config
@@ -21,7 +21,7 @@ st.set_page_config(
 load_dotenv()
 
 # ------------------------------------------------------------
-# Oculta header/toolbar/menu e sidebar no login
+# Estilos (login + hero)
 # ------------------------------------------------------------
 st.markdown("""
 <style>
@@ -40,7 +40,7 @@ div[data-testid="collapsedControl"]{display:none!important;}
 .block-container{ padding-top: .5rem !important; }
 .lang-row{ position:absolute; top:8px; left:16px; }
 
-/* tipografia e inputs padrão */
+/* inputs e tipografia */
 * { color:#111111 !important; }
 a { color:#111111 !important; text-decoration: underline; }
 input, textarea, select, .stTextInput input, .stPassword input {
@@ -56,7 +56,7 @@ input::placeholder, textarea::placeholder { color:#444444 !important; opacity:1 
 }
 .login-title{ font-size:18px; margin:0 0 14px 0; font-weight:700; }
 
-/* ===== HERO LAYOUT ===== */
+/* HERO */
 .hero-wrap{ max-width: 560px; }
 .logo-card{
   display:inline-block; background:#fff; padding:14px; border-radius:18px;
@@ -91,12 +91,10 @@ input::placeholder, textarea::placeholder { color:#444444 !important; opacity:1 
 # ------------------------------------------------------------
 def _bg_data_uri():
     here = Path(__file__).parent
-    candidates = [here/"background.png", here/"assets"/"background.png"]
-    for p in candidates:
+    for p in (here/"background.png", here/"assets"/"background.png"):
         if p.exists():
-            mime = "image/png"
             b64 = base64.b64encode(p.read_bytes()).decode("ascii")
-            return f"data:{mime};base64,{b64}"
+            return f"data:image/png;base64,{b64}"
     return None
 
 _bg = _bg_data_uri()
@@ -110,23 +108,9 @@ if _bg:
       background-size: clamp(900px, 85vw, 1600px) auto;
       opacity: .50; filter: contrast(103%) brightness(101%);
     }}
-    .block-container, [data-testid="stSidebar"], header, footer {{
-      position: relative; z-index: 1;
-    }}
-    @media (max-width: 1200px){{
-      [data-testid="stAppViewContainer"]::before {{
-        background-size: clamp(780px, 90vw, 1100px) auto; opacity:.45;
-      }}
-    }}
-    @media (max-width: 768px){{
-      [data-testid="stAppViewContainer"]::before {{
-        background-size: 700px auto; background-position: center 40px; opacity:.40;
-      }}
-    }}
+    .block-container, [data-testid="stSidebar"], header, footer {{ position: relative; z-index: 1; }}
     </style>
     """, unsafe_allow_html=True)
-else:
-    st.warning("⚠️ 'background.png' não foi encontrado (raiz ou assets/).")
 
 # ------------------------------------------------------------
 # i18n
@@ -170,13 +154,14 @@ def show_sidebar():
 # Autenticação
 # ------------------------------------------------------------
 def build_authenticator() -> stauth.Authenticate:
-    # Lê auth_config.yaml da mesma pasta do app.py (raiz)
+    # lê auth_config.yaml da mesma pasta do app.py (raiz)
     with open("auth_config.yaml", "r", encoding="utf-8") as f:
         config = yaml.load(f, Loader=SafeLoader)
     return stauth.Authenticate(
         config["credentials"], config["cookie"]["name"],
         config["cookie"]["key"], config["cookie"]["expiry_days"]
     )
+
 authenticator = build_authenticator()
 
 # ------------------------------------------------------------
@@ -195,12 +180,9 @@ with left:
             st.markdown("</div>", unsafe_allow_html=True)
             break
 
-    # eyebrow + textos
     st.markdown(f'<div class="hero-eyebrow">{t["eyebrow"]}</div>', unsafe_allow_html=True)
     st.markdown(f'<div class="hero-title">{t["title"]}</div>', unsafe_allow_html=True)
     st.markdown(f'<div class="hero-sub">{t["subtitle"]}</div>', unsafe_allow_html=True)
-
-    # bullets
     st.markdown(f"""
     <ul class='hero-bullets'>
       <li>{t['bul1']}</li>
@@ -209,7 +191,6 @@ with left:
     </ul>
     """, unsafe_allow_html=True)
 
-    # botões
     st.markdown(
         f"<div class='cta-row'><a class='btn-primary' href='#login'>{t['cta_login']}</a>"
         f"<a class='btn-ghost' href='mailto:support@dapsistemas.com'>{t['cta_about']}</a></div>",
@@ -222,15 +203,16 @@ with right:
         f"<div id='login' class='login-card'><div class='login-title'>{t['secure_access']}</div>",
         unsafe_allow_html=True
     )
+
+    # ✅ CHAMADA ÚNICA DO LOGIN (evita duplicate form key)
     fields = {"Form name": "", "Username": "Usuário", "Password": "Senha", "Login": "Entrar"}
-    try:
-        name, auth_status, username = authenticator.login("main", fields=fields)
-    except TypeError:
-        name, auth_status, username = authenticator.login("main")
+    LOGIN_FORM_KEY = "login_form_v1"
+    name, auth_status, username = authenticator.login(LOGIN_FORM_KEY, fields=fields)
+
     st.markdown(f"<div class='login-note'>{t['confidential']}</div></div>", unsafe_allow_html=True)
 
 # ------------------------------------------------------------
-# UX do login (olho senha + lembrar usuário)
+# UX do login extra (olho senha etc) – opcional
 # ------------------------------------------------------------
 def apply_ux_enhancements():
     st.markdown("""
@@ -239,76 +221,15 @@ def apply_ux_enhancements():
         border:0; background:transparent; cursor:pointer; font-size:16px; padding:2px; line-height:1;}
       .pw-wrap { position:relative; }
       .caps-hint { margin-top:6px; font-size:12px; color:#d00; }
-      .remember-row { display:flex; align-items:center; gap:8px; font-size:13px;
-        margin:6px 0 10px 2px; color:#111;}
+      .remember-row { display:flex; align-items:center; gap:8px; font-size:13px; margin:6px 0 10px 2px; color:#111;}
       .remember-row input[type="checkbox"]{ transform: scale(1.1); }
-      @media (max-width: 780px){ .footer{ position: static; } }
     </style>
-    """, unsafe_allow_html=True)
-
-    st.markdown("""
-    <script>
-    (function(){
-      const root = document.getElementById('login') || document.body;
-      function onceReady(fn){
-        let tries = 0;
-        const iv = setInterval(()=>{
-          tries++;
-          const u = root.querySelector('input[type="text"]');
-          const p = root.querySelector('input[type="password"]');
-          const btn = root.querySelector('button');
-          if ((u || p) && btn){ clearInterval(iv); fn({u,p,btn}); }
-          if (tries > 25) clearInterval(iv);
-        }, 180);
-      }
-      onceReady(({u,p,btn})=>{
-        if (u && !u.placeholder) u.placeholder = "Usuário";
-        if (p && !p.placeholder) p.placeholder = "Senha";
-        if (u){
-          const saved = localStorage.getItem('dap_username') || "";
-          if (saved && !u.value) u.value = saved;
-          const row = document.createElement('label');
-          row.className = 'remember-row';
-          row.innerHTML = "<input type='checkbox' id='rememberUser'> <span>Lembrar usuário</span>";
-          (u.parentElement?.parentElement || u.parentElement).insertAdjacentElement('afterend', row);
-          const cb = row.querySelector('#rememberUser');
-          cb.checked = !!saved;
-          const store = () => { cb.checked ? localStorage.setItem('dap_username', u.value) : localStorage.removeItem('dap_username'); };
-          u.addEventListener('input', store); cb.addEventListener('change', store);
-        }
-        if (p){
-          if (!p.parentElement.classList.contains('pw-wrap')) p.parentElement.classList.add('pw-wrap');
-          const eye = document.createElement('button');
-          eye.type = 'button'; eye.className = 'pw-eye';
-          eye.setAttribute('aria-label','Mostrar/ocultar senha');
-          eye.textContent = '👁';
-          p.parentElement.appendChild(eye);
-          eye.addEventListener('click', ()=>{ p.type = (p.type === 'password' ? 'text' : 'password'); });
-          const hint = document.createElement('div');
-          hint.className = 'caps-hint';
-          hint.textContent = 'Caps Lock ativo';
-          hint.style.display = 'none';
-          p.parentElement.appendChild(hint);
-          p.addEventListener('keyup', (e)=>{ hint.style.display = (e.getModifierState && e.getModifierState('CapsLock')) ? 'block' : 'none'; });
-        }
-        (u || p)?.focus();
-        [u,p].forEach(el => el && el.addEventListener('keydown', (e)=>{ if (e.key === 'Enter'){ btn?.click(); }}));
-        if (btn){
-          btn.addEventListener('click', ()=>{
-            const old = btn.textContent;
-            btn.disabled = true; btn.textContent = 'Entrando…';
-            setTimeout(()=>{ btn.disabled = false; btn.textContent = old; }, 4000);
-          });
-        }
-      });
-    })();
-    </script>
     """, unsafe_allow_html=True)
 
 apply_ux_enhancements()
 
 # ------------------------------------------------------------
-# Estado do login
+# Estado do login + pós-login
 # ------------------------------------------------------------
 if 'auth_status' in locals():
     if 'last_auth_status' not in st.session_state:
@@ -334,25 +255,22 @@ if 'auth_status' in locals():
         except Exception:
             authenticator.logout("Sair", "sidebar")
 
-        # ============ LINKS PARA AS PAGES ============
+        # ====== MENU DE PÁGINAS (lista tudo que está em /pages) ======
         st.sidebar.markdown("### Páginas")
         pages_dir = Path("pages")
         if pages_dir.exists():
-            # 1) Se houver uma page chamada Geoportal.py, mostra primeiro com label bonito
-            if (pages_dir / "Geoportal.py").exists():
-                st.sidebar.page_link("pages/Geoportal.py", label="📷 Geoportal", icon="🗺️")
-            # 2) Lista as demais .py da pasta (sem duplicar)
-            for p in sorted(pages_dir.glob("*.py")):
-                if p.name != "Geoportal.py":
-                    st.sidebar.page_link(str(p), label=p.stem)
+            # ordem natural pelo prefixo (ex.: 1_, 2_, 3_...)
+            files = sorted(pages_dir.glob("*.py"), key=lambda p: p.name.lower())
+            for p in files:
+                label = p.stem.replace("_", " ")
+                st.sidebar.page_link(str(p), label=label)
         else:
             st.sidebar.info("Nenhuma página encontrada em `pages/`.")
 
-        # Conteúdo simples da página principal depois do login
+        # Conteúdo simples na página principal após login
         st.markdown("---")
         st.subheader("✅ Autenticado")
         st.write("Use a barra lateral para abrir as páginas da pasta **pages/**.")
-        # =============================================
 
 # ------------------------------------------------------------
 # Footer
@@ -362,9 +280,7 @@ ENV_LABEL = "Produção"
 st.markdown(f"""
 <div class="footer">
   <div>DAP ATLAS · {APP_VERSION} · Ambiente: {ENV_LABEL}</div>
-  <div>{t["internal_use"]} · <a href="mailto:support@dapsistemas.com">{t["support"]}</a> · 
-       <a href="https://example.com/privacidade" target="_blank">{t["privacy"]}</a></div>
+  <div>Uso interno · <a href="mailto:support@dapsistemas.com">Suporte</a> · 
+       <a href="https://example.com/privacidade" target="_blank">Privacidade</a></div>
 </div>
 """, unsafe_allow_html=True)
-
- 
