@@ -1,13 +1,13 @@
 # -*- coding: utf-8 -*-
 import os
 from pathlib import Path
-import base64
 import yaml
 from yaml.loader import SafeLoader
-from PIL import Image
 import streamlit as st
-import streamlit_authenticator as stauth
 from dotenv import load_dotenv
+from PIL import Image
+import streamlit_authenticator as stauth
+import base64
 
 # ------------------------------------------------------------
 # Config
@@ -21,26 +21,22 @@ st.set_page_config(
 load_dotenv()
 
 # ------------------------------------------------------------
-# Estilos (login + hero)
+# Oculta header/toolbar/menu e sidebar no login
 # ------------------------------------------------------------
 st.markdown("""
 <style>
-/* header/toolbar/menus padrão do Streamlit */
 header[data-testid="stHeader"]{display:none!important;}
 div[data-testid="stToolbar"]{display:none!important;}
 #MainMenu{visibility:hidden;}
 footer{visibility:hidden;}
 
-/* sidebar e o "handle" para abrir (no login) */
 [data-testid="stSidebar"]{display:none!important;}
 div[data-testid="collapsedControl"]{display:none!important;}
 
-/* reduz espaço no topo e puxa conteúdo pra cima */
 [data-testid="stAppViewContainer"]{ padding-top: 0 !important; }
 .block-container{ padding-top: .5rem !important; }
 .lang-row{ position:absolute; top:8px; left:16px; }
 
-/* inputs e tipografia */
 * { color:#111111 !important; }
 a { color:#111111 !important; text-decoration: underline; }
 input, textarea, select, .stTextInput input, .stPassword input {
@@ -49,14 +45,12 @@ input, textarea, select, .stTextInput input, .stPassword input {
 }
 input::placeholder, textarea::placeholder { color:#444444 !important; opacity:1 !important; }
 
-/* cartão do login */
 .login-card{
   padding:24px; border:1px solid #e7e7e7; border-radius:16px;
   box-shadow: 0 8px 24px rgba(0,0,0,.06); background:#ffffff !important;
 }
 .login-title{ font-size:18px; margin:0 0 14px 0; font-weight:700; }
 
-/* HERO */
 .hero-wrap{ max-width: 560px; }
 .logo-card{
   display:inline-block; background:#fff; padding:14px; border-radius:18px;
@@ -91,10 +85,12 @@ input::placeholder, textarea::placeholder { color:#444444 !important; opacity:1 
 # ------------------------------------------------------------
 def _bg_data_uri():
     here = Path(__file__).parent
-    for p in (here/"background.png", here/"assets"/"background.png"):
+    candidates = [here/"background.png", here/"assets"/"background.png"]
+    for p in candidates:
         if p.exists():
+            mime = "image/png"
             b64 = base64.b64encode(p.read_bytes()).decode("ascii")
-            return f"data:image/png;base64,{b64}"
+            return f"data:{mime};base64,{b64}"
     return None
 
 _bg = _bg_data_uri()
@@ -103,12 +99,16 @@ if _bg:
     <style>
     [data-testid="stAppViewContainer"]::before {{
       content:"";
-      position: fixed; inset: 0; z-index: 0; pointer-events: none;
+      position: fixed; inset: 0;
+      z-index: 0; pointer-events: none;
       background: #f5f5f5 url('{_bg}') no-repeat center top;
       background-size: clamp(900px, 85vw, 1600px) auto;
-      opacity: .50; filter: contrast(103%) brightness(101%);
+      opacity: .50;
+      filter: contrast(103%) brightness(101%);
     }}
-    .block-container, [data-testid="stSidebar"], header, footer {{ position: relative; z-index: 1; }}
+    .block-container, [data-testid="stSidebar"], header, footer {{
+      position: relative; z-index: 1;
+    }}
     </style>
     """, unsafe_allow_html=True)
 
@@ -154,14 +154,12 @@ def show_sidebar():
 # Autenticação
 # ------------------------------------------------------------
 def build_authenticator() -> stauth.Authenticate:
-    # lê auth_config.yaml da mesma pasta do app.py (raiz)
     with open("auth_config.yaml", "r", encoding="utf-8") as f:
         config = yaml.load(f, Loader=SafeLoader)
     return stauth.Authenticate(
         config["credentials"], config["cookie"]["name"],
         config["cookie"]["key"], config["cookie"]["expiry_days"]
     )
-
 authenticator = build_authenticator()
 
 # ------------------------------------------------------------
@@ -171,9 +169,7 @@ left, right = st.columns([1.15, 1], gap="large")
 
 with left:
     st.markdown("<div class='hero-wrap'>", unsafe_allow_html=True)
-
-    # logo em “cartão”
-    for cand in ("dapatlas.png","dapatlas.jpeg","logo.png","logo.jpeg","daplogo_upscaled.png"):
+    for cand in ("dapatlas.png","dapatlas.jpeg","logo.png","logo.jpeg"):
         if Path(cand).exists():
             st.markdown("<div class='logo-card'>", unsafe_allow_html=True)
             st.image(Image.open(cand), width=180)
@@ -190,7 +186,6 @@ with left:
       <li>{t['bul3']}</li>
     </ul>
     """, unsafe_allow_html=True)
-
     st.markdown(
         f"<div class='cta-row'><a class='btn-primary' href='#login'>{t['cta_login']}</a>"
         f"<a class='btn-ghost' href='mailto:support@dapsistemas.com'>{t['cta_about']}</a></div>",
@@ -204,32 +199,28 @@ with right:
         unsafe_allow_html=True
     )
 
-    # ✅ CHAMADA ÚNICA DO LOGIN (evita duplicate form key)
+    # --- LOGIN (compatível com várias versões do streamlit-authenticator) ---
     fields = {"Form name": "", "Username": "Usuário", "Password": "Senha", "Login": "Entrar"}
-    LOGIN_FORM_KEY = "login_form_v1"
-    name, auth_status, username = authenticator.login(LOGIN_FORM_KEY, fields=fields)
 
+    def do_login():
+        try:
+            return authenticator.login(
+                location="main",
+                fields=fields,
+                key="login_form_v1",
+                clear_on_submit=False,
+            )
+        except TypeError:
+            try:
+                return authenticator.login("main", fields=fields, key="login_form_v1")
+            except TypeError:
+                return authenticator.login("main")
+
+    name, auth_status, username = do_login()
     st.markdown(f"<div class='login-note'>{t['confidential']}</div></div>", unsafe_allow_html=True)
 
 # ------------------------------------------------------------
-# UX do login extra (olho senha etc) – opcional
-# ------------------------------------------------------------
-def apply_ux_enhancements():
-    st.markdown("""
-    <style>
-      .pw-eye {position:absolute; right:10px; top:50%; transform: translateY(-50%);
-        border:0; background:transparent; cursor:pointer; font-size:16px; padding:2px; line-height:1;}
-      .pw-wrap { position:relative; }
-      .caps-hint { margin-top:6px; font-size:12px; color:#d00; }
-      .remember-row { display:flex; align-items:center; gap:8px; font-size:13px; margin:6px 0 10px 2px; color:#111;}
-      .remember-row input[type="checkbox"]{ transform: scale(1.1); }
-    </style>
-    """, unsafe_allow_html=True)
-
-apply_ux_enhancements()
-
-# ------------------------------------------------------------
-# Estado do login + pós-login
+# Estado do login
 # ------------------------------------------------------------
 if 'auth_status' in locals():
     if 'last_auth_status' not in st.session_state:
@@ -247,30 +238,12 @@ if 'auth_status' in locals():
         st.info(t["login_hint"])
 
     if auth_status:
-        # --- após login ---
         show_sidebar()
         st.sidebar.success(f'{t["logged_as"]}: {name}')
         try:
             authenticator.logout(location="sidebar")
         except Exception:
             authenticator.logout("Sair", "sidebar")
-
-        # ====== MENU DE PÁGINAS (lista tudo que está em /pages) ======
-        st.sidebar.markdown("### Páginas")
-        pages_dir = Path("pages")
-        if pages_dir.exists():
-            # ordem natural pelo prefixo (ex.: 1_, 2_, 3_...)
-            files = sorted(pages_dir.glob("*.py"), key=lambda p: p.name.lower())
-            for p in files:
-                label = p.stem.replace("_", " ")
-                st.sidebar.page_link(str(p), label=label)
-        else:
-            st.sidebar.info("Nenhuma página encontrada em `pages/`.")
-
-        # Conteúdo simples na página principal após login
-        st.markdown("---")
-        st.subheader("✅ Autenticado")
-        st.write("Use a barra lateral para abrir as páginas da pasta **pages/**.")
 
 # ------------------------------------------------------------
 # Footer
@@ -280,7 +253,7 @@ ENV_LABEL = "Produção"
 st.markdown(f"""
 <div class="footer">
   <div>DAP ATLAS · {APP_VERSION} · Ambiente: {ENV_LABEL}</div>
-  <div>Uso interno · <a href="mailto:support@dapsistemas.com">Suporte</a> · 
-       <a href="https://example.com/privacidade" target="_blank">Privacidade</a></div>
+  <div>{t["internal_use"]} · <a href="mailto:support@dapsistemas.com">{t["support"]}</a> · 
+       <a href="https://example.com/privacidade" target="_blank">{t["privacy"]}</a></div>
 </div>
 """, unsafe_allow_html=True)
