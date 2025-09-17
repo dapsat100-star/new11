@@ -56,7 +56,7 @@ input::placeholder, textarea::placeholder { color:#444444 !important; opacity:1 
 }
 .login-title{ font-size:18px; margin:0 0 14px 0; font-weight:700; }
 
-/* ===== HERO LAYOUT (como no print) ===== */
+/* ===== HERO LAYOUT ===== */
 .hero-wrap{ max-width: 560px; }
 .logo-card{
   display:inline-block; background:#fff; padding:14px; border-radius:18px;
@@ -78,7 +78,6 @@ input::placeholder, textarea::placeholder { color:#444444 !important; opacity:1 
 .hero-bullets{ margin:8px 0 18px 18px; }
 .hero-bullets li{ margin:6px 0; }
 
-/* botões estilo do print */
 .btn-primary, .btn-ghost{
   display:inline-block; padding:10px 16px; border-radius:10px; text-decoration:none!important;
   border:1px solid #111; background:#fff; color:#111!important;
@@ -106,27 +105,22 @@ if _bg:
     <style>
     [data-testid="stAppViewContainer"]::before {{
       content:"";
-      position: fixed; inset: 0;
-      z-index: 0; pointer-events: none;
+      position: fixed; inset: 0; z-index: 0; pointer-events: none;
       background: #f5f5f5 url('{_bg}') no-repeat center top;
-      background-size: clamp(900px, 85vw, 1600px) auto;  /* tamanho controlado */
-      opacity: .50;
-      filter: contrast(103%) brightness(101%);
+      background-size: clamp(900px, 85vw, 1600px) auto;
+      opacity: .50; filter: contrast(103%) brightness(101%);
     }}
     .block-container, [data-testid="stSidebar"], header, footer {{
       position: relative; z-index: 1;
     }}
     @media (max-width: 1200px){{
       [data-testid="stAppViewContainer"]::before {{
-        background-size: clamp(780px, 90vw, 1100px) auto;
-        opacity:.45;
+        background-size: clamp(780px, 90vw, 1100px) auto; opacity:.45;
       }}
     }}
     @media (max-width: 768px){{
       [data-testid="stAppViewContainer"]::before {{
-        background-size: 700px auto;
-        background-position: center 40px;
-        opacity:.40;
+        background-size: 700px auto; background-position: center 40px; opacity:.40;
       }}
     }}
     </style>
@@ -176,6 +170,7 @@ def show_sidebar():
 # Autenticação
 # ------------------------------------------------------------
 def build_authenticator() -> stauth.Authenticate:
+    # Lê auth_config.yaml da mesma pasta do app.py (raiz)
     with open("auth_config.yaml", "r", encoding="utf-8") as f:
         config = yaml.load(f, Loader=SafeLoader)
     return stauth.Authenticate(
@@ -193,10 +188,10 @@ with left:
     st.markdown("<div class='hero-wrap'>", unsafe_allow_html=True)
 
     # logo em “cartão”
-    for cand in ("dapatlas.png","dapatlas.jpeg","logo.png","logo.jpeg"):
+    for cand in ("dapatlas.png","dapatlas.jpeg","logo.png","logo.jpeg","daplogo_upscaled.png"):
         if Path(cand).exists():
             st.markdown("<div class='logo-card'>", unsafe_allow_html=True)
-            st.image(Image.open(cand), width=180)  # sem use_column_width
+            st.image(Image.open(cand), width=180)
             st.markdown("</div>", unsafe_allow_html=True)
             break
 
@@ -331,12 +326,33 @@ if 'auth_status' in locals():
         st.info(t["login_hint"])
 
     if auth_status:
+        # --- após login ---
         show_sidebar()
         st.sidebar.success(f'{t["logged_as"]}: {name}')
         try:
             authenticator.logout(location="sidebar")
         except Exception:
             authenticator.logout("Sair", "sidebar")
+
+        # ============ LINKS PARA AS PAGES ============
+        st.sidebar.markdown("### Páginas")
+        pages_dir = Path("pages")
+        if pages_dir.exists():
+            # 1) Se houver uma page chamada Geoportal.py, mostra primeiro com label bonito
+            if (pages_dir / "Geoportal.py").exists():
+                st.sidebar.page_link("pages/Geoportal.py", label="📷 Geoportal", icon="🗺️")
+            # 2) Lista as demais .py da pasta (sem duplicar)
+            for p in sorted(pages_dir.glob("*.py")):
+                if p.name != "Geoportal.py":
+                    st.sidebar.page_link(str(p), label=p.stem)
+        else:
+            st.sidebar.info("Nenhuma página encontrada em `pages/`.")
+
+        # Conteúdo simples da página principal depois do login
+        st.markdown("---")
+        st.subheader("✅ Autenticado")
+        st.write("Use a barra lateral para abrir as páginas da pasta **pages/**.")
+        # =============================================
 
 # ------------------------------------------------------------
 # Footer
@@ -350,3 +366,5 @@ st.markdown(f"""
        <a href="https://example.com/privacidade" target="_blank">{t["privacy"]}</a></div>
 </div>
 """, unsafe_allow_html=True)
+
+ 
