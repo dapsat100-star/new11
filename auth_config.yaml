@@ -1,0 +1,11 @@
+credentials:
+  usernames:
+    demo:
+      name: Demo User
+      email: demo@dap.com
+      password: "$2b$12$xuy.M0sEnY4Y636ouKsxhOLusy75NRh/u50KVYmH.CdLmmoNV4hO."  # senha: 1234
+cookie:
+  expiry_days: 30
+  key: "SOME_RANDOM_SECURE_KEY_123"   # pode ser qualquer string longa e aleatória
+  name: dap_auth
+
