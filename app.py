@@ -21,7 +21,7 @@ st.set_page_config(
 load_dotenv()
 
 # ------------------------------------------------------------
-# Oculta header/toolbar/menu e sidebar no login
+# Estilos (login + hero)
 # ------------------------------------------------------------
 st.markdown("""
 <style>
@@ -199,7 +199,6 @@ with right:
         unsafe_allow_html=True
     )
 
-    # --- LOGIN (compatível com várias versões do streamlit-authenticator) ---
     fields = {"Form name": "", "Username": "Usuário", "Password": "Senha", "Login": "Entrar"}
 
     def do_login():
@@ -244,6 +243,17 @@ if 'auth_status' in locals():
             authenticator.logout(location="sidebar")
         except Exception:
             authenticator.logout("Sair", "sidebar")
+
+        # ==== Redirecionar automaticamente para Geoportal ====
+        if not st.session_state.get("redirected_to_geoportal"):
+            st.session_state["redirected_to_geoportal"] = True
+            try:
+                st.switch_page("pages/2_Geoportal.py")
+            except Exception:
+                st.success("Login OK! Clique abaixo para abrir o Geoportal.")
+                st.page_link("pages/2_Geoportal.py", label="📷 Abrir Geoportal", icon="🗺️")
+                st.stop()
+        # =====================================================
 
 # ------------------------------------------------------------
 # Footer
