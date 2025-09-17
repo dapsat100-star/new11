@@ -1,7 +1,25 @@
 streamlit>=1.32
-streamlit-authenticator==0.3.2
+streamlit-authenticator>=0.3.2
 python-dotenv>=1.0.0
 Pillow>=10.0.0
 PyYAML>=6.0
 snowflake-connector-python>=3.0.0
+
+# data
+pandas>=2.0.0
+numpy>=1.25.0
+
+# gráficos
+plotly>=5.15.0
+
+# mapas
+folium>=0.14.0
+streamlit-folium>=0.13.0
+
+# PDF
+reportlab>=4.0.0
+kaleido>=0.2.1
+
+# Excel
+openpyxl>=3.1.2
 
