@@ -31,7 +31,7 @@ if not auth_ok:
     st.warning("Sessão expirada ou não autenticada.")
     # Link de volta para a Home / página de login
     # Ajuste o caminho abaixo conforme o nome do seu arquivo de entrada.
-    st.page_link("Home.py", label="🔒 Voltar à página de login")
+    st.page_link("appe.py", label="🔒 Voltar à página de login")
     st.stop()
 
 # opcional: carrega o mesmo config para poder exibir o logout
