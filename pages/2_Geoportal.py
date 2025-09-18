@@ -67,7 +67,7 @@ if logo_ui_path.exists():
         unsafe_allow_html=True
     )
 
-st.title("📷 Plataforma Geoespacial DAP Atlas")
+st.title("Plataforma Geoespacial DAP Atlas")
 
 # ---- Link único na sidebar ----
 with st.sidebar:
@@ -114,7 +114,7 @@ with st.sidebar:
             _auth.logout("Sair", "sidebar")
     st.markdown("---")
 
-    st.header("📁 Suba o Excel")
+    st.header("📁 Carregar o Excel")
     uploaded = st.file_uploader("Upload do Excel (.xlsx)", type=["xlsx"])
     st.markdown("---")
     with st.expander("⚙️ Opções de série temporal"):
