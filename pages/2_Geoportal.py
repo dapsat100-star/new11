@@ -36,7 +36,7 @@ from urllib.request import urlopen
 
 # ----------------- página -----------------
 st.set_page_config(page_title="Geoportal — Plotly", layout="wide", initial_sidebar_state="expanded")
-st.title("📷 Plataforma Geoespacial DAP Atlas")
+st.title("Plataforma Geoespacial DAP Atlas")
 
 # 🔒 Esconde o menu automático de páginas e mostra apenas um link manual "GEOPORTAL"
 st.markdown("""
