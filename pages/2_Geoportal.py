@@ -34,6 +34,28 @@ from reportlab.lib.pagesizes import A4
 from reportlab.lib.utils import ImageReader
 from urllib.request import urlopen
 
+# ----------------- página -----------------
+st.set_page_config(page_title="Geoportal — Plotly", layout="wide", initial_sidebar_state="expanded")
+st.title("📷 Geoportal de Metano — versão Plotly")
+
+# 🔒 Esconde o menu automático de páginas e mostra apenas um link manual "GEOPORTAL"
+st.markdown("""
+<style>
+[data-testid="stSidebarNav"]{ display:none !important; }
+div[data-testid="collapsedControl"]{ display:block !important; }
+</style>
+""", unsafe_allow_html=True)
+with st.sidebar:
+    st.page_link("pages/2_Geoportal.py", label="GEOPORTAL", icon="🗺️")
+
+# ---- Guard de sessão (não recriar login; apenas ler o estado) ----
+auth_ok   = st.session_state.get("authentication_status", None)
+user_name = st.session_state.get("name") or st.session_state.get("username")
+if not auth_ok:
+    st.warning("Sessão expirada ou não autenticada.")
+    st.markdown('<a href="/" target="_self">🔒 Voltar à página de login</a>', unsafe_allow_html=True)
+    st.stop()
+
 # ----------------- util: garantir sidebar visível -----------------
 def force_show_sidebar():
     st.markdown("""
@@ -55,19 +77,6 @@ def _build_authenticator():
         )
     except Exception:
         return None
-
-# ----------------- página -----------------
-st.set_page_config(page_title="Geoportal — Plotly", layout="wide", initial_sidebar_state="expanded")
-st.title("📷 Geoportal de Metano — versão Plotly")
-
-# ---- Guard de sessão (não recriar login; apenas ler o estado) ----
-auth_ok   = st.session_state.get("authentication_status", None)
-user_name = st.session_state.get("name") or st.session_state.get("username")
-if not auth_ok:
-    st.warning("Sessão expirada ou não autenticada.")
-    # link robusto (não depende do nome do arquivo da Home): recarrega o app e volta ao login
-    st.markdown('<a href="/" target="_self">🔒 Voltar à página de login</a>', unsafe_allow_html=True)
-    st.stop()
 
 # ================= Sidebar =================
 with st.sidebar:
