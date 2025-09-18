@@ -408,7 +408,17 @@ def build_report_pdf(site, date, taxa, inc, vento, img_url, fig1,
                 scope=PlotlyScope(plotlyjs=None, mathjax=False)
                 png1=scope.transform(fig1.to_plotly_json(), format="png", width=1400, height=800, scale=2)
             except Exception:
-                png1=fig1.to_image(format="png", width=1400, height=800, scale=2, engine="kaleido")
+               from kaleido.scopes.plotly import PlotlyScope
+scope = PlotlyScope(plotlyjs=None, mathjax=False)
+
+png1 = scope.transform(
+    fig1.to_plotly_json(),
+    format="png",
+    width=1400,
+    height=800,
+    scale=2
+)
+
 
             img1=ImageReader(io.BytesIO(png1)); iw,ih=img1.getSize()
             max_w,max_h=W-2*margin,260; s=min(max_w/iw,max_h/ih); w,h=iw*s,ih*s
