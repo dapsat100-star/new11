@@ -124,6 +124,13 @@ with st.sidebar:
         window = st.slider("Janela/Span", 3, 90, 7, step=1)
         show_trend = st.checkbox("Mostrar tendência linear", value=False)
         show_conf = st.checkbox("Mostrar banda P10–P90", value=False)
+        show_bar = st.checkbox("Mostrar bar plot com barras de erro", value=True)
+        err_mode = st.selectbox(
+            "Agregação do erro (para o bar plot)",
+            ["Média", "RMS", "Máx"],
+            index=0,
+            help="Como consolidar as incertezas no período agregado das barras."
+        )
 
 # ================= Helpers =================
 @st.cache_data
@@ -209,6 +216,25 @@ def extract_series(dfi: pd.DataFrame, date_cols_sorted, dates_ts_sorted, row_nam
     if not s.empty: s = s.sort_values("date").reset_index(drop=True)
     return s
 
+# ====== EXTRAÇÃO (valor + erro) ======
+def extract_series_pair(dfi: pd.DataFrame,
+                        date_cols_sorted, dates_ts_sorted,
+                        value_row="Taxa Metano",
+                        err_row="Incerteza") -> pd.DataFrame:
+    """
+    Extrai duas séries (valor e erro) alinhadas por data.
+    Retorna dataframe com colunas: date, value, err
+    """
+    s_val = extract_series(dfi, date_cols_sorted, dates_ts_sorted, row_name=value_row)
+    s_err = extract_series(dfi, date_cols_sorted, dates_ts_sorted, row_name=err_row)
+    if s_val.empty and s_err.empty:
+        return pd.DataFrame(columns=["date", "value", "err"])
+    df = pd.merge(s_val.rename(columns={"value": "value"}),
+                  s_err.rename(columns={"value": "err"}),
+                  on="date", how="left")
+    return df
+
+# ====== SUAVIZAÇÃO/REAMOSTRAGEM para linha ======
 def resample_and_smooth(s: pd.DataFrame, freq_code: str, agg: str, smooth: str, window: int):
     if s.empty: return s
     s2 = s.set_index("date").asfreq("D")
@@ -220,13 +246,43 @@ def resample_and_smooth(s: pd.DataFrame, freq_code: str, agg: str, smooth: str, 
         out["value"] = out["value"].ewm(span=window, adjust=False).mean()
     return out
 
-# =============== Fluxo principal ===============
-if uploaded is None:
-    st.info("Faça o upload do seu Excel (`.xlsx`) no painel lateral.")
-    st.stop()
+# ====== REAMOSTRAGEM para bar plot com erro ======
+def resample_for_bar_with_error(df: pd.DataFrame,
+                                freq_code: str,
+                                agg: str,
+                                err_mode: str = "Média") -> pd.DataFrame:
+    """
+    Reamostra a série para barras:
+      - value: usa a agregação escolhida (média, mediana, máx, mín)
+      - err:   consolida por período segundo err_mode:
+               "Média" -> média simples
+               "RMS"   -> raiz da média dos quadrados
+               "Máx"   -> valor máximo no período
+    """
+    if df.empty:
+        return df
 
-# (… resto do código segue igual: leitura do Excel, comparação multi-site, gráficos, métricas, PDF …)
+    df2 = df.set_index("date").asfreq("D")
+    agg_fn_map = {"média": "mean", "mediana": "median", "máx": "max", "mín": "min"}
+    agg_fn = agg_fn_map.get(agg, "mean")
 
+    # agrega valor
+    val_series = getattr(df2["value"].resample(freq_code), agg_fn)()
+
+    # agrega erro
+    if "err" in df2.columns:
+        if err_mode == "RMS":
+            err_series = (df2["err"]**2).resample(freq_code).mean() ** 0.5
+        elif err_mode == "Máx":
+            err_series = df2["err"].resample(freq_code).max()
+        else:  # "Média"
+            err_series = df2["err"].resample(freq_code).mean()
+    else:
+        err_series = pd.Series(index=val_series.index, dtype=float)
+
+    out = pd.concat([val_series, err_series], axis=1).rename(columns={"value": "value", "err": "err"})
+    out = out.dropna(subset=["value"])
+    return out.reset_index()
 
 # =============== Fluxo principal ===============
 if uploaded is None:
@@ -428,6 +484,49 @@ if not series.empty:
 else:
     st.info("Sem dados numéricos para a série temporal.")
 
+# --------- Bar plot com barras de erro ---------
+fig_bar = None
+if show_bar:
+    st.markdown("### Bar plot — Taxa de Metano com barras de erro (site)")
+
+    series_valerr_raw = extract_series_pair(
+        dfi, date_cols_sorted, stamps_sorted,
+        value_row="Taxa Metano", err_row="Incerteza"
+    )
+
+    if not series_valerr_raw.empty:
+        series_valerr = resample_for_bar_with_error(
+            series_valerr_raw, freq_code=freq_code, agg=agg, err_mode=err_mode
+        )
+
+        if not series_valerr.empty:
+            fig_bar = go.Figure()
+            fig_bar.add_trace(
+                go.Bar(
+                    x=series_valerr["date"],
+                    y=series_valerr["value"],
+                    name="Taxa Metano",
+                    error_y=dict(
+                        type="data",
+                        array=series_valerr["err"].fillna(0),
+                        visible=True,
+                        thickness=1.0
+                    )
+                )
+            )
+            fig_bar.update_layout(
+                template="plotly_white",
+                xaxis_title="Data",
+                yaxis_title="Taxa de Metano",
+                margin=dict(l=10, r=10, t=30, b=10),
+                height=380
+            )
+            st.plotly_chart(fig_bar, use_container_width=True)
+        else:
+            st.info("Sem dados suficientes (após agregação) para o bar plot.")
+    else:
+        st.info("Sem dados de 'Taxa Metano' e/ou 'Incerteza' para montar o bar plot.")
+
 # Boxplots + média mensal
 st.markdown("### Boxplots por mês + média mensal (site)")
 fig_box = None
@@ -582,6 +681,7 @@ def build_report_pdf(site, date, taxa, inc, vento, img_url, fig1, fig2,
 
 # ===================== Exportar PDF (UI) =====================
 # Usa as variáveis calculadas acima (dfi/rec etc.)
+
 def _get_from_dfi(dfi: pd.DataFrame, selected_col: str, name: str, *aliases):
     import unicodedata, re
     def _norm_txt(s: str) -> str:
@@ -611,8 +711,9 @@ st.caption("Relatório com faixa superior (Header Band), logo, métricas (inclui
 if st.button("Gerar PDF (dados + gráficos)", type="primary", use_container_width=True):
     pdf_bytes = build_report_pdf(
         site=site, date=selected_label, taxa=taxa, inc=inc, vento=vento,
-        img_url=img_url, fig1=fig_line if 'fig_line' in locals() else None,
-        fig2=fig_box if 'fig_box' in locals() else None,
+        img_url=img_url,
+        fig1=fig_line if 'fig_line' in locals() else None,
+        fig2=fig_bar if ('fig_bar' in locals() and fig_bar is not None and show_bar) else (fig_box if 'fig_box' in locals() else None),
         logo_rel_path=LOGO_REL_PATH, satellite=satellite
     )
     st.download_button(
