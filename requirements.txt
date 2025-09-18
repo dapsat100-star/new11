@@ -10,7 +10,7 @@ pandas>=2.0.0
 numpy>=1.25.0
 
 # gráficos
-plotly>=5.15.0
+plotly>=5.18.0
 
 # mapas
 folium>=0.14.0
