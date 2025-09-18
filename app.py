@@ -22,8 +22,6 @@ load_dotenv()
 
 # ------------------------------------------------------------
 # Estilos (login + hero)
-#  - IMPORTANTE: não escondemos mais a sidebar inteira.
-#  - Escondemos apenas a NAV automática de páginas.
 # ------------------------------------------------------------
 st.markdown("""
 <style>
@@ -32,9 +30,11 @@ div[data-testid="stToolbar"]{display:none!important;}
 #MainMenu{visibility:hidden;}
 footer{visibility:hidden;}
 
-/* 🔒 Esconde a navegação automática (lista de páginas) da barra lateral */
-[data-testid="stSidebarNav"]{ display:none !important; }
-section[data-testid="stSidebar"] nav{ display:none !important; }
+/* 🔒 Só exibe "Geoportal" na lista de páginas */
+[data-testid="stSidebarNav"] ul li { display: none !important; }
+[data-testid="stSidebarNav"] ul li:has(a[title="Geoportal"]) {
+  display: list-item !important;
+}
 
 /* Mantém o botão de colapsar visível */
 div[data-testid="collapsedControl"]{ display:block !important; }
@@ -147,17 +147,6 @@ TXT = {
 t = TXT[st.session_state.lang]
 
 # ------------------------------------------------------------
-# Mostrar sidebar após login (se quiser usar a sidebar no login)
-# ------------------------------------------------------------
-def show_sidebar():
-    st.markdown("""
-    <style>
-      [data-testid='stSidebar']{display:flex!important;}
-      div[data-testid="collapsedControl"]{display:block!important;}
-    </style>
-    """, unsafe_allow_html=True)
-
-# ------------------------------------------------------------
 # Autenticação
 # ------------------------------------------------------------
 def build_authenticator() -> stauth.Authenticate:
@@ -249,7 +238,6 @@ if 'auth_status' in locals():
         st.session_state["name"] = name
         st.session_state["username"] = username
 
-        show_sidebar()
         st.sidebar.success(f'{t["logged_as"]}: {name}')
         try:
             authenticator.logout(location="sidebar")
@@ -279,3 +267,4 @@ st.markdown(f"""
        <a href="https://example.com/privacidade" target="_blank">{t["privacy"]}</a></div>
 </div>
 """, unsafe_allow_html=True)
+  
