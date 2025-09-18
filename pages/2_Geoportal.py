@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
-# Geoportal — OGMP 2.0 L5 (logo topo-direito, header oculto, menu nativo oculto)
+# pages/2_Geoportal.py
+# Geoportal — 1 único gráfico: linha (spline opcional) + barras de incerteza
 
 import io
 import base64
@@ -10,9 +11,8 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 import plotly.graph_objects as go
-from plotly.subplots import make_subplots
 
-# ==== Auth ====
+# ==== Auth (apenas para botão Sair e guard) ====
 import yaml
 from yaml.loader import SafeLoader
 import streamlit_authenticator as stauth
@@ -38,7 +38,7 @@ from reportlab.lib.utils import ImageReader
 from urllib.request import urlopen
 
 # ----------------- Página -----------------
-st.set_page_config(page_title="Geoportal — Plotly", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="Geoportal — Metano", layout="wide", initial_sidebar_state="expanded")
 
 # === CSS para esconder header do Streamlit e ajustar UI ===
 st.markdown("""
@@ -50,8 +50,8 @@ div[data-testid="collapsedControl"]{ display:block !important; }
 </style>
 """, unsafe_allow_html=True)
 
-# === Logo Mavipe no canto superior direito ===
-logo_ui_path = Path(__file__).parent / "logomavipe.jpeg"  # arquivo está dentro de /pages
+# === Logo no canto superior direito ===
+logo_ui_path = Path(__file__).parent / "logomavipe.jpeg"  # arquivo dentro de /pages
 if logo_ui_path.exists():
     b64_logo = base64.b64encode(logo_ui_path.read_bytes()).decode("ascii")
     st.markdown(
@@ -59,9 +59,9 @@ if logo_ui_path.exists():
         unsafe_allow_html=True
     )
 
-st.title("Plataforma Geoespacial DAP Atlas")
+st.title("📷 Geoportal de Metano — gráfico único")
 
-# ---- Link único na sidebar ----
+# ---- Link único na sidebar (navegação manual se quiser) ----
 with st.sidebar:
     st.page_link("pages/2_Geoportal.py", label="GEOPORTAL", icon="🗺️")
 
@@ -78,7 +78,7 @@ def force_show_sidebar():
     st.markdown("""
     <style>
       [data-testid='stSidebar']{display:flex !important;}
-      div[data-testid=\"collapsedControl\"]{display:block !important;}
+      div[data-testid="collapsedControl"]{display:block !important;}
     </style>
     """, unsafe_allow_html=True)
 
@@ -108,19 +108,16 @@ with st.sidebar:
 
     st.header("📁 Carregar o Excel")
     uploaded = st.file_uploader("Upload do Excel (.xlsx)", type=["xlsx"])
+
     st.markdown("---")
-    with st.expander("⚙️ Opções de visualização"):
+    with st.expander("⚙️ Opções do gráfico"):
         freq = st.selectbox("Frequência (para agregação)", ["Diário","Semanal","Mensal","Trimestral"], index=2)
-        agg = st.selectbox("Agregação da série temporal", ["média","mediana","máx","mín"], index=0)
+        agg = st.selectbox("Agregação da série", ["média","mediana","máx","mín"], index=0)
         smooth = st.selectbox("Suavização", ["Nenhuma","Média móvel","Exponencial (EMA)"], index=0)
-        window = st.slider("Janela/Span (para suavização)", 3, 90, 7, step=1)
+        window = st.slider("Janela/Span (suavização)", 3, 90, 7, step=1)
+        line_spline = st.checkbox("Linha como spline", value=True)
+        show_unc_bars = st.checkbox("Mostrar barras de incerteza", value=True)
         show_trend = st.checkbox("Mostrar tendência linear", value=False)
-        show_conf = st.checkbox("Mostrar banda P10–P90", value=False)
-        line_spline = st.checkbox("Linha temporal como spline", value=True)
-        box_stat = st.selectbox(
-            "Traçado sobre boxplots (estatística)", ["Média","Mediana"], index=0,
-            help="Define a estatística por mês e o traçado será uma spline sobre os boxplots."
-        )
 
 # ================= Helpers =================
 @st.cache_data
@@ -197,13 +194,16 @@ def extract_series(dfi: pd.DataFrame, date_cols_sorted, dates_ts_sorted, row_nam
     if key is not None:
         for i, col in enumerate(date_cols_sorted):
             val = dfi.loc[key, col] if col in dfi.columns else None
-            try: num = float(pd.to_numeric(val))
-            except Exception: num = None
+            try:
+                num = float(pd.to_numeric(val))
+            except Exception:
+                num = None
             ts = dates_ts_sorted[i]
             if pd.notna(num) and pd.notna(ts):
                 rows.append({"date": ts, "value": float(num)})
     s = pd.DataFrame(rows)
-    if not s.empty: s = s.sort_values("date").reset_index(drop=True)
+    if not s.empty:
+        s = s.sort_values("date").reset_index(drop=True)
     return s
 
 def resample_and_smooth(s: pd.DataFrame, freq_code: str, agg: str, smooth: str, window: int):
@@ -228,88 +228,14 @@ except Exception as e:
     st.error(f"Falha ao ler o Excel enviado. Detalhe: {e}")
     st.stop()
 
-# Cada aba = 1 site
+# Normaliza cada aba (site)
 book = {name: normalize_cols(df.copy()) for name, df in book.items()}
 site_names = sorted(book.keys())
 
-# =================== MODO: 1 SITE vs VÁRIOS (SUBPLOTS) ===================
-st.markdown("#### Modo de visualização")
-compare_mode = st.toggle(
-    "Comparar vários sites (subplots)",
-    value=False,
-    help="Quando ligado, plota uma grade com 1 gráfico por site (1 aba = 1 site)."
-)
-
-if compare_mode:
-    chosen_sites = st.multiselect("Selecione os sites a comparar", site_names, default=site_names)
-    if not chosen_sites:
-        st.info("Selecione ao menos um site para comparar.")
-        st.stop()
-
-    n = len(chosen_sites)
-    cols = 2 if n > 1 else 1
-    rows = int(np.ceil(n / cols))
-
-    fig_grid = make_subplots(rows=rows, cols=cols,
-                             subplot_titles=chosen_sites,
-                             shared_xaxes=False, shared_yaxes=False)
-
-    freq_code = {"Diário": "D", "Semanal": "W", "Mensal": "M", "Trimestral": "Q"}[freq]
-
-    r = c = 1
-    for sname in chosen_sites:
-        df_site_i = book[sname].copy()
-        if df_site_i.columns[0] != "Parametro":
-            df_site_i.columns = ["Parametro"] + list(df_site_i.columns[1:])
-        df_site_i["Parametro"] = df_site_i["Parametro"].astype(str).str.strip()
-        dfi_i = df_site_i.set_index("Parametro", drop=True)
-
-        date_cols_i, labels_i, stamps_i = extract_dates_from_first_row(df_site_i)
-        order_i = sorted(
-            range(len(date_cols_i)),
-            key=lambda i: (pd.Timestamp.min if pd.isna(stamps_i[i]) else stamps_i[i])
-        )
-        date_cols_sorted_i = [date_cols_i[i] for i in order_i]
-        stamps_sorted_i    = [stamps_i[i] for i in order_i]
-
-        s_raw_i = extract_series(dfi_i, date_cols_sorted_i, stamps_sorted_i, row_name="Taxa Metano")
-        s_proc_i = resample_and_smooth(s_raw_i, freq_code=freq_code, agg=agg, smooth=smooth, window=window)
-
-        if not s_proc_i.empty:
-            fig_grid.add_trace(
-                go.Scatter(x=s_proc_i["date"], y=s_proc_i["value"], mode="lines+markers",
-                           line=dict(shape='spline'), name=sname, showlegend=False),
-                row=r, col=c
-            )
-        else:
-            fig_grid.add_trace(
-                go.Scatter(x=[], y=[], mode="markers", showlegend=False),
-                row=r, col=c
-            )
-
-        c += 1
-        if c > cols:
-            c = 1
-            r += 1
-
-    fig_grid.update_layout(
-        template="plotly_white",
-        height=max(320, 260 * rows),
-        margin=dict(l=10, r=10, t=40, b=10),
-    )
-    for i in range(1, rows * cols + 1):
-        fig_grid.update_xaxes(title_text="Data", row=(i - 1) // cols + 1, col=(i - 1) % cols + 1)
-        fig_grid.update_yaxes(title_text="Taxa de Metano", row=(i - 1) // cols + 1, col=(i - 1) % cols + 1)
-
-    st.markdown("### Comparação por site (1 aba = 1 site)")
-    st.plotly_chart(fig_grid, use_container_width=True)
-    st.stop()
-
-# =================== (fluxo normal — 1 SITE) ===================
+# Escolha do site e data
 site = st.selectbox("Selecione o Site", site_names)
 df_site = book[site]
 
-# Datas
 date_cols, labels, stamps = extract_dates_from_first_row(df_site)
 order = sorted(range(len(date_cols)), key=lambda i: (pd.Timestamp.min if pd.isna(stamps[i]) else stamps[i]))
 date_cols_sorted = [date_cols[i] for i in order]
@@ -319,8 +245,9 @@ stamps_sorted = [stamps[i] for i in order]
 selected_label = st.selectbox("Selecione a data", labels_sorted)
 selected_col = date_cols_sorted[labels_sorted.index(selected_label)]
 
-# Layout
+# Layout superior: imagem/mapa + tabela/métricas
 left, right = st.columns([2,1])
+
 with left:
     rec = build_record_for_month(df_site, selected_col)
     img = resolve_image_target(rec.get("Imagem"))
@@ -343,7 +270,7 @@ with right:
     dfi["Parametro"] = dfi["Parametro"].astype(str).str.strip()
     dfi = dfi.set_index("Parametro", drop=True)
 
-    # getv robusto
+    # helpers para pegar valores por nome (ignora acentos/caixa)
     import unicodedata, re
     def _norm_txt(s: str) -> str:
         if s is None: return ""
@@ -376,70 +303,74 @@ with right:
     table_df = table_df.applymap(lambda v: "" if (pd.isna(v)) else str(v))
     st.dataframe(table_df, use_container_width=True)
 
-# --------- Série temporal (linha spline) ---------
-st.markdown("### Série temporal — Taxa de Metano (site)")
-series_raw = extract_series(dfi, date_cols_sorted, stamps_sorted)
-freq_code = {"Diário":"D","Semanal":"W","Mensal":"M","Trimestral":"Q"}[freq]
-series = resample_and_smooth(series_raw, freq_code, agg, smooth, window)
+# ======== Gráfico único: linha (spline) + barras de incerteza ========
+st.markdown("### Série temporal — Taxa de Metano com Incerteza")
 
-fig_line = None
-if not series.empty:
-    fig_line = go.Figure()
-    line_kwargs = {"shape": 'spline'} if line_spline else {}
-    fig_line.add_trace(go.Scatter(x=series["date"], y=series["value"], mode="lines+markers",
-                                  line=dict(**line_kwargs), name="Taxa Metano"))
-    if show_conf and len(series) >= 3:
-        p10 = series["value"].quantile(0.10); p90 = series["value"].quantile(0.90)
-        fig_line.add_trace(go.Scatter(
-            x=pd.concat([series["date"], series["date"][::-1]]),
-            y=pd.concat([pd.Series([p90]*len(series)), pd.Series([p10]*len(series))[::-1]]),
-            fill='toself', opacity=0.15, line=dict(width=0), name="P10–P90"
-        ))
-    if show_trend and len(series) >= 2:
-        x = (series["date"] - series["date"].min()).dt.days.values.astype(float)
-        yvals = series["value"].values.astype(float)
-        coeffs = np.polyfit(x, yvals, 1); line = np.poly1d(coeffs)
-        fig_line.add_trace(go.Scatter(x=series["date"], y=line(x), mode="lines", name="Tendência", line=dict(dash="dash")))
-    fig_line.update_layout(template="plotly_white", xaxis_title="Data", yaxis_title="Taxa de Metano",
-                           margin=dict(l=10, r=10, t=30, b=10), height=380)
-    st.plotly_chart(fig_line, use_container_width=True)
+# séries cruas por data
+series_raw_val = extract_series(dfi, date_cols_sorted, stamps_sorted, row_name="Taxa Metano")
+series_raw_unc = extract_series(dfi, date_cols_sorted, stamps_sorted, row_name="Incerteza")
+
+# frequencia e agregação iguais às opções escolhidas
+freq_code = {"Diário": "D", "Semanal": "W", "Mensal": "M", "Trimestral": "Q"}[freq]
+series_val = resample_and_smooth(series_raw_val, freq_code, agg, smooth, window)
+series_unc = resample_and_smooth(series_raw_unc, freq_code, agg, smooth, window)
+
+# alinhar valores e incertezas por data
+df_plot = pd.merge(
+    series_val.rename(columns={"value": "metano"}),
+    series_unc.rename(columns={"value": "incerteza"}),
+    on="date", how="left"
+).sort_values("date")
+
+if df_plot.empty:
+    st.info("Sem dados numéricos suficientes para plotar.")
+    fig_line = None  # para PDF
 else:
-    st.info("Sem dados numéricos para a série temporal.")
+    err_array = df_plot["incerteza"].fillna(0)
+    line_kwargs = {"shape": "spline"} if line_spline else {}
 
-# --------- Boxplots por mês + spline do agregado ---------
-st.markdown("### Boxplots por mês + spline do agregado (site)")
-fig_box = None
-if not series_raw.empty:
-    dfm = series_raw.copy()
-    dfm["month"] = dfm["date"].dt.to_period("M").dt.to_timestamp()
-    order_months = sorted(dfm["month"].unique())
-
-    fig_box = go.Figure()
-    # Box por mês
-    for m in order_months:
-        vals = dfm.loc[dfm["month"] == m, "value"]
-        fig_box.add_trace(go.Box(y=vals, name=m.strftime("%Y-%m"), boxmean="sd"))
-
-    # Estatística escolhida por mês
-    if box_stat == "Mediana":
-        agg_series = dfm.groupby("month")["value"].median().reindex(order_months)
-        agg_name = "Mediana mensal"
-    else:
-        agg_series = dfm.groupby("month")["value"].mean().reindex(order_months)
-        agg_name = "Média mensal"
-
-    # Traçado como spline sobre os boxplots
-    x_labels = [m.strftime("%Y-%m") for m in order_months]
-    fig_box.add_trace(
-        go.Scatter(x=x_labels, y=agg_series.values, mode="lines+markers",
-                   name=agg_name, line=dict(shape='spline'))
+    fig_line = go.Figure()
+    fig_line.add_trace(
+        go.Scatter(
+            x=df_plot["date"],
+            y=df_plot["metano"],
+            mode="lines+markers",
+            name="Taxa de Metano",
+            line=dict(**line_kwargs),
+            error_y=dict(
+                type="data",
+                array=err_array,
+                visible=bool(show_unc_bars),
+                thickness=1.2,
+                width=3,
+            ),
+        )
     )
 
-    fig_box.update_layout(template="plotly_white", yaxis_title="Taxa de Metano",
-                          margin=dict(l=10, r=10, t=30, b=10), height=440, boxmode="group")
-    st.plotly_chart(fig_box, use_container_width=True)
-else:
-    st.info("Sem dados suficientes para boxplots mensais.")
+    if show_trend and len(df_plot) >= 2:
+        x = (df_plot["date"] - df_plot["date"].min()).dt.days.values.astype(float)
+        y = df_plot["metano"].values.astype(float)
+        coeffs = np.polyfit(x, y, 1)
+        line = np.poly1d(coeffs)
+        fig_line.add_trace(
+            go.Scatter(
+                x=df_plot["date"],
+                y=line(x),
+                mode="lines",
+                name="Tendência",
+                line=dict(dash="dash")
+            )
+        )
+
+    fig_line.update_layout(
+        template="plotly_white",
+        xaxis_title="Data",
+        yaxis_title="Taxa de Metano",
+        margin=dict(l=10, r=10, t=30, b=10),
+        height=420,
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+    )
+    st.plotly_chart(fig_line, use_container_width=True)
 
 # ===================== PDF helpers =====================
 def _image_reader_from_url(url: str):
@@ -456,8 +387,7 @@ def _draw_logo_scaled(c, x_right, y_top, logo_img, lw, lh, max_w=90, max_h=42):
     c.drawImage(logo_img, x_right - w, y_top - h, width=w, height=h, mask='auto')
     return w, h
 
-# ====== PDF (Header Band, UTC) ======
-def build_report_pdf(site, date, taxa, inc, vento, img_url, fig1, fig2,
+def build_report_pdf(site, date, taxa, inc, vento, img_url, fig1,
                      logo_rel_path: str = LOGO_REL_PATH,
                      satellite: Optional[str] = None) -> bytes:
     BAND   = (0x15/255, 0x5E/255, 0x75/255)   # #155E75
@@ -518,19 +448,7 @@ def build_report_pdf(site, date, taxa, inc, vento, img_url, fig1, fig2,
                 c.showPage(); y = start_page()
             c.drawImage(img1, margin, y - h, width=w, height=h, mask='auto'); y -= h + 16
         except Exception as e:
-            c.setFont("Helvetica", 9); c.drawString(margin, y, f"[Falha ao exportar gráfico 1: {e}]"); y -= 14
-
-    if fig2 is not None:
-        try:
-            png2 = fig2.to_image(format="png", width=1400, height=900, scale=2, engine="kaleido")
-            img2 = ImageReader(io.BytesIO(png2)); iw2, ih2 = img2.getSize()
-            max_w, max_h = W - 2*margin, 260
-            s2 = min(max_w/iw2, max_h/ih2); w2, h2 = iw2*s2, ih2*s2
-            if y - h2 < margin + 30:
-                c.showPage(); y = start_page()
-            c.drawImage(img2, margin, y - h2, width=w2, height=h2, mask='auto'); y -= h2 + 12
-        except Exception as e:
-            c.setFont("Helvetica", 9); c.drawString(margin, y, f"[Falha ao exportar gráfico 2: {e}]"); y -= 14
+            c.setFont("Helvetica", 9); c.drawString(margin, y, f"[Falha ao exportar gráfico: {e}]"); y -= 14
 
     c.setFont("Helvetica", 8); c.setFillColorRGB(*GRAY)
     c.drawRightString(W - margin, 12, f"pág {page_no}")
@@ -540,38 +458,27 @@ def build_report_pdf(site, date, taxa, inc, vento, img_url, fig1, fig2,
     return buf.getvalue()
 
 # ===================== Exportar PDF (UI) =====================
-def _get_from_dfi(dfi: pd.DataFrame, selected_col: str, name: str, *aliases):
-    """Busca um valor na linha indicada (ignorando acentos/caixa/espacos)."""
-    import unicodedata, re, pandas as _pd
 
+def _get_from_dfi(dfi: pd.DataFrame, selected_col: str, name: str, *aliases):
+    """Busca um valor na linha indicada (ignora acentos/caixa/espaços)."""
+    import unicodedata, re
     def _norm_txt(s) -> str:
-        if s is None or (isinstance(s, float) and _pd.isna(s)):
+        if s is None or (isinstance(s, float) and pd.isna(s)):
             return ""
         s = unicodedata.normalize("NFKD", str(s))
-        # remove marcas de acento (categoria 'M')
         s = "".join(ch for ch in s if not unicodedata.category(ch).startswith("M"))
-        # normaliza espacos e caixa
         return re.sub(r"\s+", " ", s).strip().lower()
 
-    # índice normalizado -> original
     idx_norm = {_norm_txt(ix): ix for ix in dfi.index}
-
     keys = [_norm_txt(name)] + [_norm_txt(a) for a in aliases]
-    # 1) match exato do nome normalizado
     for k in keys:
         if k and k in idx_norm:
             return dfi.loc[idx_norm[k], selected_col]
-
-    # 2) fallback: começa com (para lidar com nomes longos/variantes)
     for nk, orig in idx_norm.items():
         if any(nk.startswith(k) for k in keys if k):
             return dfi.loc[orig, selected_col]
-
     return None
 
-
-
-# Coleta campos para PDF
 with right:
     taxa      = _get_from_dfi(dfi, selected_col, "Taxa Metano")
     inc       = _get_from_dfi(dfi, selected_col, "Incerteza")
@@ -581,14 +488,12 @@ img_url   = resolve_image_target(rec.get("Imagem"))
 
 st.markdown("---")
 st.subheader("📄 Exportar PDF")
-st.caption("Relatório com faixa superior, logo, métricas, imagem e gráficos atuais (linha spline + boxplots). Timestamp em UTC.")
+st.caption("Relatório com faixa superior, logo, métricas, imagem e o gráfico atual (linha + barras de incerteza). Timestamp em UTC.")
 
-if st.button("Gerar PDF (dados + gráficos)", type="primary", use_container_width=True):
+if st.button("Gerar PDF (dados + gráfico)", type="primary", use_container_width=True):
     pdf_bytes = build_report_pdf(
         site=site, date=selected_label, taxa=taxa, inc=inc, vento=vento,
-        img_url=img_url,
-        fig1=fig_line if 'fig_line' in locals() else None,
-        fig2=fig_box if 'fig_box' in locals() else None,
+        img_url=img_url, fig1=fig_line,
         logo_rel_path=LOGO_REL_PATH, satellite=satellite
     )
     st.download_button(
