@@ -39,7 +39,7 @@ from urllib.request import urlopen
 
 # ----------------- Página -----------------
 st.set_page_config(page_title="Geoportal — Plotly", layout="wide", initial_sidebar_state="expanded")
-st.title("📷 Plataforma Geoespacial DAP Atlas")
+st.title("Plataforma Geoespacial DAP Atlas")
 
 # === Logo Mavipe no canto superior direito (fixo, não desloca layout) ===
 st.markdown("""
