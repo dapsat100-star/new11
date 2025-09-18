@@ -92,7 +92,7 @@ with st.sidebar:
 
     st.header("📁 Suba o Excel")
     uploaded = st.file_uploader("Upload do Excel (.xlsx)", type=["xlsx"])
-    st.caption(f"As URLs das figuras serão montadas como `{DEFAULT_BASE_URL}/images/<arquivo>` automaticamente.")
+   # st.caption(f"As URLs das figuras serão montadas como `{DEFAULT_BASE_URL}/images/<arquivo>` automaticamente.")
     st.markdown("---")
     with st.expander("⚙️ Opções de série temporal"):
         freq = st.selectbox("Frequência", ["Diário","Semanal","Mensal","Trimestral"], index=2)
