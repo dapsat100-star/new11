@@ -299,7 +299,8 @@ with right:
     st.caption("Tabela completa (parâmetro → valor):")
     table_df = dfi[[selected_col]].copy()
     table_df.columns = ["Valor"]
-    if "Imagem" in table_df.index: table_df = table_df.drop(index="Imagem")
+    if "Imagem" in table_df.index: 
+        table_df = table_df.drop(index="Imagem")
     table_df = table_df.applymap(lambda v: "" if (pd.isna(v)) else str(v))
     st.dataframe(table_df, use_container_width=True)
 
@@ -438,15 +439,13 @@ def build_report_pdf(site, date, taxa, inc, vento, img_url, fig1,
                 c.showPage(); y = start_page()
             c.drawImage(main_img, margin, y - h, width=w, height=h, mask='auto'); y -= h + 18
 
-      if fig1 is not None:
+    # >>>>>>> BLOCO CORRIGIDO (identação) <<<<<<<
+    if fig1 is not None:
         try:
             # ===== Exporta com Kaleido PlotlyScope (independe de Chrome) =====
             try:
                 from kaleido.scopes.plotly import PlotlyScope
-                scope = PlotlyScope(
-                    plotlyjs=None,  # usa o embutido
-                    mathjax=False
-                )
+                scope = PlotlyScope(plotlyjs=None, mathjax=False)
                 png1 = scope.transform(
                     fig1.to_plotly_json(),
                     format="png",
@@ -455,7 +454,7 @@ def build_report_pdf(site, date, taxa, inc, vento, img_url, fig1,
                     scale=2
                 )
             except Exception:
-                # Fallback: tentativa via API do plotly (também kaleido)
+                # Fallback: API do plotly com kaleido
                 png1 = fig1.to_image(
                     format="png",
                     width=1400,
@@ -482,7 +481,7 @@ def build_report_pdf(site, date, taxa, inc, vento, img_url, fig1,
             c.setFont("Helvetica", 9)
             c.drawString(margin, y, f"[Falha ao exportar gráfico: {e}]")
             y -= 14
-
+    # >>>>>>> FIM DO BLOCO CORRIGIDO <<<<<<<
 
     c.setFont("Helvetica", 8); c.setFillColorRGB(*GRAY)
     c.drawRightString(W - margin, 12, f"pág {page_no}")
@@ -537,3 +536,4 @@ if st.button("Gerar PDF (dados + gráfico)", type="primary", use_container_width
         mime="application/pdf",
         use_container_width=True
     )
+
