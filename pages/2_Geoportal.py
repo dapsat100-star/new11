@@ -40,13 +40,24 @@ from urllib.request import urlopen
 # ----------------- Página -----------------
 st.set_page_config(page_title="Geoportal — Metano", layout="wide", initial_sidebar_state="expanded")
 
-# === CSS para esconder header do Streamlit e ajustar UI ===
+# === CSS para UI ===
 st.markdown("""
 <style>
+/* Esconde o header nativo */
 header[data-testid="stHeader"] { display: none !important; }
-#top-right-logo { position: fixed; top: 16px; right: 16px; z-index: 1000; }
-[data-testid="stSidebarNav"]{ display:none !important; }
+
+/* Força a sidebar a ficar sempre visível (compat 1.30+) */
+section[data-testid="stSidebar"], aside[data-testid="stSidebar"] {
+  display: block !important;
+  transform: none !important;
+  visibility: visible !important;
+}
+
+/* Garante que o botão de colapsar apareça */
 div[data-testid="collapsedControl"]{ display:block !important; }
+
+/* NÃO esconda o stSidebarNav: mantemos a barra viva */
+#top-right-logo { position: fixed; top: 16px; right: 16px; z-index: 1000; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -74,14 +85,6 @@ if not auth_ok:
     st.stop()
 
 # ================= Sidebar =================
-def force_show_sidebar():
-    st.markdown("""
-    <style>
-      [data-testid='stSidebar']{display:flex !important;}
-      div[data-testid="collapsedControl"]{display:block !important;}
-    </style>
-    """, unsafe_allow_html=True)
-
 def _build_authenticator():
     try:
         with open("auth_config.yaml", "r", encoding="utf-8") as f:
@@ -96,7 +99,6 @@ def _build_authenticator():
         return None
 
 with st.sidebar:
-    force_show_sidebar()
     st.success(f"Logado como: {user_name or 'usuário'}")
     _auth = _build_authenticator()
     if _auth:
@@ -171,7 +173,7 @@ def extract_dates_from_first_row(df: pd.DataFrame) -> Tuple[List[str], Dict[str,
 def build_record_for_month(df: pd.DataFrame, date_col: str) -> Dict[str, Optional[str]]:
     dfi = df.copy()
     if dfi.columns[0] != "Parametro":
-        dfi.columns = ["Parametro"] + list(dfi.columns[1:])
+        dfi.columns = ["Parametro"] + list(dfi.columns[1:])]
     dfi["Parametro"] = dfi["Parametro"].astype(str).str.strip()
     dfi = dfi.set_index("Parametro", drop=True)
     rec = {param: dfi.loc[param, date_col] for param in dfi.index}
@@ -266,7 +268,7 @@ with right:
     st.subheader("Detalhes do Registro")
     dfi = df_site.copy()
     if dfi.columns[0] != "Parametro":
-        dfi.columns = ["Parametro"] + list(dfi.columns[1:])
+        dfi.columns = ["Parametro"] + list(dfi.columns[1:])]
     dfi["Parametro"] = dfi["Parametro"].astype(str).str.strip()
     dfi = dfi.set_index("Parametro", drop=True)
 
@@ -299,7 +301,7 @@ with right:
     st.caption("Tabela completa (parâmetro → valor):")
     table_df = dfi[[selected_col]].copy()
     table_df.columns = ["Valor"]
-    if "Imagem" in table_df.index: 
+    if "Imagem" in table_df.index:
         table_df = table_df.drop(index="Imagem")
     table_df = table_df.applymap(lambda v: "" if (pd.isna(v)) else str(v))
     st.dataframe(table_df, use_container_width=True)
@@ -439,10 +441,9 @@ def build_report_pdf(site, date, taxa, inc, vento, img_url, fig1,
                 c.showPage(); y = start_page()
             c.drawImage(main_img, margin, y - h, width=w, height=h, mask='auto'); y -= h + 18
 
-    # >>>>>>> BLOCO CORRIGIDO (identação) <<<<<<<
+    # Gráfico (Kaleido/PlotlyScope)
     if fig1 is not None:
         try:
-            # ===== Exporta com Kaleido PlotlyScope (independe de Chrome) =====
             try:
                 from kaleido.scopes.plotly import PlotlyScope
                 scope = PlotlyScope(plotlyjs=None, mathjax=False)
@@ -454,7 +455,6 @@ def build_report_pdf(site, date, taxa, inc, vento, img_url, fig1,
                     scale=2
                 )
             except Exception:
-                # Fallback: API do plotly com kaleido
                 png1 = fig1.to_image(
                     format="png",
                     width=1400,
@@ -466,22 +466,15 @@ def build_report_pdf(site, date, taxa, inc, vento, img_url, fig1,
             img1 = ImageReader(io.BytesIO(png1))
             iw, ih = img1.getSize()
             max_w, max_h = W - 2*margin, 260
-            s = min(max_w/iw, max_h/ih)
-            w, h = iw*s, ih*s
+            s = min(max_w/iw, max_h/ih); w, h = iw*s, ih*s
 
             if y - h < margin + 30:
-                c.showPage()
-                y = start_page()
+                c.showPage(); y = start_page()
 
-            c.drawImage(img1, margin, y - h, width=w, height=h, mask='auto')
-            y -= h + 16
-
+            c.drawImage(img1, margin, y - h, width=w, height=h, mask='auto'); y -= h + 16
         except Exception as e:
-            # Mensagem amigável no PDF em caso de erro
             c.setFont("Helvetica", 9)
-            c.drawString(margin, y, f"[Falha ao exportar gráfico: {e}]")
-            y -= 14
-    # >>>>>>> FIM DO BLOCO CORRIGIDO <<<<<<<
+            c.drawString(margin, y, f"[Falha ao exportar gráfico: {e}]"); y -= 14
 
     c.setFont("Helvetica", 8); c.setFillColorRGB(*GRAY)
     c.drawRightString(W - margin, 12, f"pág {page_no}")
@@ -536,4 +529,3 @@ if st.button("Gerar PDF (dados + gráfico)", type="primary", use_container_width
         mime="application/pdf",
         use_container_width=True
     )
-
