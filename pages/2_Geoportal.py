@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# Geoportal — OGMP 2.0 L5 (com comparação multi-site por subplots)
+# Geoportal — OGMP 2.0 L5 (login+logout, comparação multi-site por subplots e PDF)
 import io
 from typing import Dict, List, Tuple, Optional
 
@@ -8,6 +8,11 @@ import pandas as pd
 import streamlit as st
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
+
+# ==== Auth deps (para botão Sair na sidebar) ====
+import yaml
+from yaml.loader import SafeLoader
+import streamlit_authenticator as stauth
 
 # ===================== CONFIGURE AQUI =====================
 DEFAULT_BASE_URL = "https://raw.githubusercontent.com/dapsat100-star/geoportal/main"
@@ -29,11 +34,53 @@ from reportlab.lib.pagesizes import A4
 from reportlab.lib.utils import ImageReader
 from urllib.request import urlopen
 
-st.set_page_config(page_title="Geoportal — Plotly", layout="wide")
+# ----------------- util: garantir sidebar visível -----------------
+def force_show_sidebar():
+    st.markdown("""
+    <style>
+      [data-testid='stSidebar']{display:flex !important;}
+      div[data-testid="collapsedControl"]{display:block !important;}
+    </style>
+    """, unsafe_allow_html=True)
+
+def _build_authenticator():
+    try:
+        with open("auth_config.yaml", "r", encoding="utf-8") as f:
+            cfg = yaml.load(f, Loader=SafeLoader)
+        return stauth.Authenticate(
+            cfg["credentials"],
+            cfg["cookie"]["name"],
+            cfg["cookie"]["key"],
+            cfg["cookie"]["expiry_days"],
+        )
+    except Exception:
+        return None
+
+# ----------------- página -----------------
+st.set_page_config(page_title="Geoportal — Plotly", layout="wide", initial_sidebar_state="expanded")
 st.title("📷 Geoportal de Metano — versão Plotly")
+
+# ---- Guard de sessão (não recriar login; apenas ler o estado) ----
+auth_ok   = st.session_state.get("authentication_status", None)
+user_name = st.session_state.get("name") or st.session_state.get("username")
+if not auth_ok:
+    st.warning("Sessão expirada ou não autenticada.")
+    # link robusto (não depende do nome do arquivo da Home): recarrega o app e volta ao login
+    st.markdown('<a href="/" target="_self">🔒 Voltar à página de login</a>', unsafe_allow_html=True)
+    st.stop()
 
 # ================= Sidebar =================
 with st.sidebar:
+    force_show_sidebar()
+    st.success(f"Logado como: {user_name or 'usuário'}")
+    _auth = _build_authenticator()
+    if _auth:
+        try:
+            _auth.logout(location="sidebar")  # versões mais novas
+        except Exception:
+            _auth.logout("Sair", "sidebar")   # versões antigas
+    st.markdown("---")
+
     st.header("📁 Suba o Excel")
     uploaded = st.file_uploader("Upload do Excel (.xlsx)", type=["xlsx"])
     st.caption(f"As URLs das figuras serão montadas como `{DEFAULT_BASE_URL}/images/<arquivo>` automaticamente.")
@@ -503,6 +550,7 @@ def build_report_pdf(site, date, taxa, inc, vento, img_url, fig1, fig2,
     return buf.getvalue()
 
 # ===================== Exportar PDF (UI) =====================
+# usa as variáveis calculadas acima (dfi/rec etc.)
 taxa      = getv("Taxa Metano")
 inc       = getv("Incerteza")
 vento     = getv("Velocidade do Vento")
