@@ -540,22 +540,36 @@ def build_report_pdf(site, date, taxa, inc, vento, img_url, fig1, fig2,
     return buf.getvalue()
 
 # ===================== Exportar PDF (UI) =====================
-
 def _get_from_dfi(dfi: pd.DataFrame, selected_col: str, name: str, *aliases):
-    import unicodedata, re
-    def _norm_txt(s: str) -> str:
+    """Busca um valor na linha indicada (ignorando acentos/caixa/espacos)."""
+    import unicodedata, re, pandas as _pd
+
+    def _norm_txt(s) -> str:
+        if s is None or (isinstance(s, float) and _pd.isna(s)):
+            return ""
         s = unicodedata.normalize("NFKD", str(s))
-        s = "".join(ch for ch in s if not unicodedata.category(ch).startsWith("M"))
+        # remove marcas de acento (categoria 'M')
+        s = "".join(ch for ch in s if not unicodedata.category(ch).startswith("M"))
+        # normaliza espacos e caixa
         return re.sub(r"\s+", " ", s).strip().lower()
+
+    # índice normalizado -> original
     idx_norm = {_norm_txt(ix): ix for ix in dfi.index}
+
     keys = [_norm_txt(name)] + [_norm_txt(a) for a in aliases]
+    # 1) match exato do nome normalizado
     for k in keys:
-        if k in idx_norm:
+        if k and k in idx_norm:
             return dfi.loc[idx_norm[k], selected_col]
+
+    # 2) fallback: começa com (para lidar com nomes longos/variantes)
     for nk, orig in idx_norm.items():
         if any(nk.startswith(k) for k in keys if k):
             return dfi.loc[orig, selected_col]
+
     return None
+
+
 
 # Coleta campos para PDF
 with right:
