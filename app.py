@@ -22,6 +22,8 @@ load_dotenv()
 
 # ------------------------------------------------------------
 # Estilos (login + hero)
+#  - IMPORTANTE: não escondemos mais a sidebar inteira.
+#  - Escondemos apenas a NAV automática de páginas.
 # ------------------------------------------------------------
 st.markdown("""
 <style>
@@ -30,9 +32,14 @@ div[data-testid="stToolbar"]{display:none!important;}
 #MainMenu{visibility:hidden;}
 footer{visibility:hidden;}
 
-[data-testid="stSidebar"]{display:none!important;}
-div[data-testid="collapsedControl"]{display:none!important;}
+/* 🔒 Esconde a navegação automática (lista de páginas) da barra lateral */
+[data-testid="stSidebarNav"]{ display:none !important; }
+section[data-testid="stSidebar"] nav{ display:none !important; }
 
+/* Mantém o botão de colapsar visível */
+div[data-testid="collapsedControl"]{ display:block !important; }
+
+/* Layout da página de login */
 [data-testid="stAppViewContainer"]{ padding-top: 0 !important; }
 .block-container{ padding-top: .5rem !important; }
 .lang-row{ position:absolute; top:8px; left:16px; }
@@ -140,7 +147,7 @@ TXT = {
 t = TXT[st.session_state.lang]
 
 # ------------------------------------------------------------
-# Mostrar sidebar após login
+# Mostrar sidebar após login (se quiser usar a sidebar no login)
 # ------------------------------------------------------------
 def show_sidebar():
     st.markdown("""
@@ -237,6 +244,11 @@ if 'auth_status' in locals():
         st.info(t["login_hint"])
 
     if auth_status:
+        # grava no session_state para o Geoportal
+        st.session_state["authentication_status"] = True
+        st.session_state["name"] = name
+        st.session_state["username"] = username
+
         show_sidebar()
         st.sidebar.success(f'{t["logged_as"]}: {name}')
         try:
