@@ -43,20 +43,11 @@ st.set_page_config(page_title="Geoportal — Metano", layout="wide", initial_sid
 # === CSS para UI ===
 st.markdown("""
 <style>
-/* Esconde o header nativo */
 header[data-testid="stHeader"] { display: none !important; }
-
-/* Força a sidebar a ficar sempre visível (compat 1.30+) */
 section[data-testid="stSidebar"], aside[data-testid="stSidebar"] {
-  display: block !important;
-  transform: none !important;
-  visibility: visible !important;
+  display: block !important; transform: none !important; visibility: visible !important;
 }
-
-/* Garante que o botão de colapsar apareça */
 div[data-testid="collapsedControl"]{ display:block !important; }
-
-/* NÃO esconda o stSidebarNav: mantemos a barra viva */
 #top-right-logo { position: fixed; top: 16px; right: 16px; z-index: 1000; }
 </style>
 """, unsafe_allow_html=True)
@@ -72,7 +63,7 @@ if logo_ui_path.exists():
 
 st.title("📷 Geoportal de Metano — gráfico único")
 
-# ---- Link único na sidebar (navegação manual se quiser) ----
+# ---- Link único na sidebar ----
 with st.sidebar:
     st.page_link("pages/2_Geoportal.py", label="GEOPORTAL", icon="🗺️")
 
@@ -173,7 +164,7 @@ def extract_dates_from_first_row(df: pd.DataFrame) -> Tuple[List[str], Dict[str,
 def build_record_for_month(df: pd.DataFrame, date_col: str) -> Dict[str, Optional[str]]:
     dfi = df.copy()
     if dfi.columns[0] != "Parametro":
-        dfi.columns = ["Parametro"] + list(dfi.columns[1:])
+        dfi.columns = ["Parametro"] + list(dfi.columns[1:])   # <- corrigido
     dfi["Parametro"] = dfi["Parametro"].astype(str).str.strip()
     dfi = dfi.set_index("Parametro", drop=True)
     rec = {param: dfi.loc[param, date_col] for param in dfi.index}
@@ -268,7 +259,7 @@ with right:
     st.subheader("Detalhes do Registro")
     dfi = df_site.copy()
     if dfi.columns[0] != "Parametro":
-        dfi.columns = ["Parametro"] + list(dfi.columns[1:])]
+        dfi.columns = ["Parametro"] + list(dfi.columns[1:])   # <- corrigido
     dfi["Parametro"] = dfi["Parametro"].astype(str).str.strip()
     dfi = dfi.set_index("Parametro", drop=True)
 
@@ -340,13 +331,7 @@ else:
             mode="lines+markers",
             name="Taxa de Metano",
             line=dict(**line_kwargs),
-            error_y=dict(
-                type="data",
-                array=err_array,
-                visible=bool(show_unc_bars),
-                thickness=1.2,
-                width=3,
-            ),
+            error_y=dict(type="data", array=err_array, visible=bool(show_unc_bars), thickness=1.2, width=3),
         )
     )
 
@@ -356,21 +341,12 @@ else:
         coeffs = np.polyfit(x, y, 1)
         line = np.poly1d(coeffs)
         fig_line.add_trace(
-            go.Scatter(
-                x=df_plot["date"],
-                y=line(x),
-                mode="lines",
-                name="Tendência",
-                line=dict(dash="dash")
-            )
+            go.Scatter(x=df_plot["date"], y=line(x), mode="lines", name="Tendência", line=dict(dash="dash"))
         )
 
     fig_line.update_layout(
-        template="plotly_white",
-        xaxis_title="Data",
-        yaxis_title="Taxa de Metano",
-        margin=dict(l=10, r=10, t=30, b=10),
-        height=420,
+        template="plotly_white", xaxis_title="Data", yaxis_title="Taxa de Metano",
+        margin=dict(l=10, r=10, t=30, b=10), height=420,
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
     )
     st.plotly_chart(fig_line, use_container_width=True)
@@ -385,124 +361,80 @@ def _image_reader_from_url(url: str):
 
 def _draw_logo_scaled(c, x_right, y_top, logo_img, lw, lh, max_w=90, max_h=42):
     if not logo_img: return 0, 0
-    scale = min(max_w/lw, max_h/lh)
-    w, h = lw*scale, lh*scale
-    c.drawImage(logo_img, x_right - w, y_top - h, width=w, height=h, mask='auto')
-    return w, h
+    scale = min(max_w/lw, max_h/lh); w, h = lw*scale, lh*scale
+    c.drawImage(logo_img, x_right - w, y_top - h, width=w, height=h, mask='auto'); return w, h
 
 def build_report_pdf(site, date, taxa, inc, vento, img_url, fig1,
                      logo_rel_path: str = LOGO_REL_PATH,
                      satellite: Optional[str] = None) -> bytes:
-    BAND   = (0x15/255, 0x5E/255, 0x75/255)   # #155E75
-    ACCENT = (0xF5/255, 0x9E/255, 0x0B/255)   # #F59E0B
-    GRAY   = (0x6B/255, 0x72/255, 0x80/255)   # #6B7280
+    BAND=(0x15/255,0x5E/255,0x75/255); ACCENT=(0xF5/255,0x9E/255,0x0B/255); GRAY=(0x6B/255,0x72/255,0x80/255)
+    buf=io.BytesIO(); c=canvas.Canvas(buf, pagesize=A4); W,H=A4; margin=40; band_h=80
 
-    buf = io.BytesIO(); c = canvas.Canvas(buf, pagesize=A4)
-    W, H = A4; margin = 40; band_h = 80
+    logo_url=f"{DEFAULT_BASE_URL.rstrip('/')}/{logo_rel_path.lstrip('/')}"
+    logo_img,logo_w,logo_h=_image_reader_from_url(logo_url)
 
-    logo_url = f"{DEFAULT_BASE_URL.rstrip('/')}/{logo_rel_path.lstrip('/')}"
-    logo_img, logo_w, logo_h = _image_reader_from_url(logo_url)
-
-    page_no = 0
+    page_no=0
     def start_page():
-        nonlocal page_no; page_no += 1
-        c.setFillColorRGB(*BAND); c.rect(0, H-band_h, W, band_h, fill=1, stroke=0)
-        _draw_logo_scaled(c, x_right=W - margin, y_top=H - (band_h/2 - 14), logo_img=logo_img, lw=logo_w, lh=logo_h, max_w=90, max_h=42)
-        ts_utc = datetime.now(timezone.utc).strftime('%d/%m/%Y %H:%M UTC')
-        c.setFillColorRGB(1, 1, 1); c.setFont("Helvetica-Bold", 16); c.drawString(margin, H - band_h + 28, "Relatório Geoportal de Metano")
-        c.setFont("Helvetica", 10); c.drawString(margin, H - band_h + 12, f"Site: {site}   |   Data: {date}   |   Gerado em: {ts_utc}")
-        c.setFillColorRGB(0, 0, 0); c.setStrokeColorRGB(*ACCENT); c.setLineWidth(1); c.line(margin, H - band_h - 6, W - margin, H - band_h - 6)
-        c.setStrokeColorRGB(0, 0, 0); return H - band_h - 20
+        nonlocal page_no; page_no+=1
+        c.setFillColorRGB(*BAND); c.rect(0,H-band_h,W,band_h,fill=1,stroke=0)
+        _draw_logo_scaled(c,x_right=W-margin,y_top=H-(band_h/2-14),logo_img=logo_img,lw=logo_w,lh=logo_h,max_w=90,max_h=42)
+        ts_utc=datetime.now(timezone.utc).strftime('%d/%m/%Y %H:%M UTC')
+        c.setFillColorRGB(1,1,1); c.setFont("Helvetica-Bold",16); c.drawString(margin,H-band_h+28,"Relatório Geoportal de Metano")
+        c.setFont("Helvetica",10); c.drawString(margin,H-band_h+12,f"Site: {site}   |   Data: {date}   |   Gerado em: {ts_utc}")
+        c.setFillColorRGB(0,0,0); c.setStrokeColorRGB(*ACCENT); c.setLineWidth(1); c.line(margin,H-band_h-6,W-margin,H-band_h-6)
+        c.setStrokeColorRGB(0,0,0); return H-band_h-20
 
-    y = start_page()
+    y=start_page()
 
-    def _s(v): return "—" if v is None or (isinstance(v, float) and pd.isna(v)) else str(v)
+    def _s(v): return "—" if v is None or (isinstance(v,float) and pd.isna(v)) else str(v)
 
-    c.setFont("Helvetica-Bold", 12); c.drawString(margin, y, "Métricas"); y -= 16
-    c.setFont("Helvetica", 11)
-    for line in (
-        f"• Taxa Metano: {_s(taxa)}",
-        f"• Incerteza: {_s(inc)}",
-        f"• Velocidade do Vento: {_s(vento)}",
-        f"• Satélite: {_s(satellite)}"
-    ):
-        c.drawString(margin, y, line); y -= 14
-    y -= 10
-    c.setStrokeColorRGB(*ACCENT); c.setLineWidth(0.7)
-    c.line(margin, y, W - margin, y); y -= 14
-    c.setStrokeColorRGB(0, 0, 0)
+    c.setFont("Helvetica-Bold",12); c.drawString(margin,y,"Métricas"); y-=16
+    c.setFont("Helvetica",11)
+    for line in (f"• Taxa Metano: {_s(taxa)}", f"• Incerteza: {_s(inc)}", f"• Velocidade do Vento: {_s(vento)}", f"• Satélite: {_s(satellite)}"):
+        c.drawString(margin,y,line); y-=14
+    y-=10; c.setStrokeColorRGB(*ACCENT); c.setLineWidth(0.7); c.line(margin,y,W-margin,y); y-=14; c.setStrokeColorRGB(0,0,0)
 
     if img_url:
-        main_img, iw, ih = _image_reader_from_url(img_url)
+        main_img,iw,ih=_image_reader_from_url(img_url)
         if main_img:
-            max_w, max_h = W - 2*margin, 190
-            s = min(max_w/iw, max_h/ih); w, h = iw*s, ih*s
-            if y - h < margin + 30:
-                c.showPage(); y = start_page()
-            c.drawImage(main_img, margin, y - h, width=w, height=h, mask='auto'); y -= h + 18
+            max_w,max_h=W-2*margin,190; s=min(max_w/iw,max_h/ih); w,h=iw*s,ih*s
+            if y-h<margin+30: c.showPage(); y=start_page()
+            c.drawImage(main_img,margin,y-h,width=w,height=h,mask='auto'); y-=h+18
 
-    # Gráfico (Kaleido/PlotlyScope)
     if fig1 is not None:
         try:
             try:
                 from kaleido.scopes.plotly import PlotlyScope
-                scope = PlotlyScope(plotlyjs=None, mathjax=False)
-                png1 = scope.transform(
-                    fig1.to_plotly_json(),
-                    format="png",
-                    width=1400,
-                    height=800,
-                    scale=2
-                )
+                scope=PlotlyScope(plotlyjs=None, mathjax=False)
+                png1=scope.transform(fig1.to_plotly_json(), format="png", width=1400, height=800, scale=2)
             except Exception:
-                png1 = fig1.to_image(
-                    format="png",
-                    width=1400,
-                    height=800,
-                    scale=2,
-                    engine="kaleido"
-                )
+                png1=fig1.to_image(format="png", width=1400, height=800, scale=2, engine="kaleido")
 
-            img1 = ImageReader(io.BytesIO(png1))
-            iw, ih = img1.getSize()
-            max_w, max_h = W - 2*margin, 260
-            s = min(max_w/iw, max_h/ih); w, h = iw*s, ih*s
-
-            if y - h < margin + 30:
-                c.showPage(); y = start_page()
-
-            c.drawImage(img1, margin, y - h, width=w, height=h, mask='auto'); y -= h + 16
+            img1=ImageReader(io.BytesIO(png1)); iw,ih=img1.getSize()
+            max_w,max_h=W-2*margin,260; s=min(max_w/iw,max_h/ih); w,h=iw*s,ih*s
+            if y-h<margin+30: c.showPage(); y=start_page()
+            c.drawImage(img1,margin,y-h,width=w,height=h,mask='auto'); y-=h+16
         except Exception as e:
-            c.setFont("Helvetica", 9)
-            c.drawString(margin, y, f"[Falha ao exportar gráfico: {e}]"); y -= 14
+            c.setFont("Helvetica",9); c.drawString(margin,y,f"[Falha ao exportar gráfico: {e}]"); y-=14
 
-    c.setFont("Helvetica", 8); c.setFillColorRGB(*GRAY)
-    c.drawRightString(W - margin, 12, f"pág {page_no}")
-    c.setFillColorRGB(0, 0, 0)
-
-    c.showPage(); c.save(); buf.seek(0)
-    return buf.getvalue()
+    c.setFont("Helvetica",8); c.setFillColorRGB(*GRAY); c.drawRightString(W-margin,12,f"pág {page_no}"); c.setFillColorRGB(0,0,0)
+    c.showPage(); c.save(); buf.seek(0); return buf.getvalue()
 
 # ===================== Exportar PDF (UI) =====================
 
 def _get_from_dfi(dfi: pd.DataFrame, selected_col: str, name: str, *aliases):
-    """Busca um valor na linha indicada (ignora acentos/caixa/espaços)."""
     import unicodedata, re
-    def _norm_txt(s) -> str:
-        if s is None or (isinstance(s, float) and pd.isna(s)):
-            return ""
-        s = unicodedata.normalize("NFKD", str(s))
-        s = "".join(ch for ch in s if not unicodedata.category(ch).startswith("M"))
-        return re.sub(r"\s+", " ", s).strip().lower()
+    def _norm_txt(s)->str:
+        if s is None or (isinstance(s,float) and pd.isna(s)): return ""
+        s=unicodedata.normalize("NFKD",str(s)); s="".join(ch for ch in s if not unicodedata.category(ch).startswith("M"))
+        return re.sub(r"\s+"," ",s).strip().lower()
 
-    idx_norm = {_norm_txt(ix): ix for ix in dfi.index}
-    keys = [_norm_txt(name)] + [_norm_txt(a) for a in aliases]
+    idx_norm={_norm_txt(ix): ix for ix in dfi.index}
+    keys=[_norm_txt(name)] + [_norm_txt(a) for a in aliases]
     for k in keys:
-        if k and k in idx_norm:
-            return dfi.loc[idx_norm[k], selected_col]
-    for nk, orig in idx_norm.items():
-        if any(nk.startswith(k) for k in keys if k):
-            return dfi.loc[orig, selected_col]
+        if k and k in idx_norm: return dfi.loc[idx_norm[k], selected_col]
+    for nk,orig in idx_norm.items():
+        if any(nk.startswith(k) for k in keys if k): return dfi.loc[orig, selected_col]
     return None
 
 with right:
