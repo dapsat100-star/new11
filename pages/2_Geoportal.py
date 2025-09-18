@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# Geoportal — OGMP 2.0 L5 (com logo no topo-direito, menu nativo oculto e link único GEOPORTAL)
+# Geoportal — OGMP 2.0 L5 (com logo no topo-direito, header oculto, menu nativo oculto e link único GEOPORTAL)
 
 import io
 import base64
@@ -19,7 +19,7 @@ import streamlit_authenticator as stauth
 
 # ===================== CONFIG =====================
 DEFAULT_BASE_URL = "https://raw.githubusercontent.com/dapsat100-star/geoportal/main"
-LOGO_REL_PATH    = "images/logomavipe.jpeg"   # usado no PDF; o logo da UI está em /pages/logomavipe.jpeg
+LOGO_REL_PATH    = "images/logomavipe.jpeg"   # usado no PDF
 # ==================================================
 
 # Mapa (opcional)
@@ -39,21 +39,27 @@ from urllib.request import urlopen
 
 # ----------------- Página -----------------
 st.set_page_config(page_title="Geoportal — Plotly", layout="wide", initial_sidebar_state="expanded")
-st.title("Plataforma Geoespacial DAP Atlas")
 
-# === Logo Mavipe no canto superior direito (fixo, não desloca layout) ===
+# === CSS para esconder header do Streamlit e ajustar UI ===
 st.markdown("""
 <style>
+/* Esconde a barra superior (header do Streamlit) */
+header[data-testid="stHeader"] {
+    display: none !important;
+}
 #top-right-logo {
   position: fixed;
   top: 16px;
   right: 16px;
   z-index: 1000;
 }
+[data-testid="stSidebarNav"]{ display:none !important; }
+div[data-testid="collapsedControl"]{ display:block !important; }
 </style>
 """, unsafe_allow_html=True)
 
-logo_ui_path = Path(__file__).parent / "logomavipe.jpeg"  # está dentro da pasta /pages
+# === Logo Mavipe no canto superior direito ===
+logo_ui_path = Path(__file__).parent / "logomavipe.jpeg"  # arquivo está dentro de /pages
 if logo_ui_path.exists():
     b64_logo = base64.b64encode(logo_ui_path.read_bytes()).decode("ascii")
     st.markdown(
@@ -61,17 +67,13 @@ if logo_ui_path.exists():
         unsafe_allow_html=True
     )
 
-# 🔒 Esconde menu automático de páginas e exibe link único
-st.markdown("""
-<style>
-[data-testid="stSidebarNav"]{ display:none !important; }
-div[data-testid="collapsedControl"]{ display:block !important; }
-</style>
-""", unsafe_allow_html=True)
+st.title("📷 Plataforma Geoespacial DAP Atlas")
+
+# ---- Link único na sidebar ----
 with st.sidebar:
     st.page_link("pages/2_Geoportal.py", label="GEOPORTAL", icon="🗺️")
 
-# ---- Guard de sessão (não recria login; apenas lê o estado) ----
+# ---- Guard de sessão ----
 auth_ok   = st.session_state.get("authentication_status", None)
 user_name = st.session_state.get("name") or st.session_state.get("username")
 if not auth_ok:
@@ -107,17 +109,13 @@ with st.sidebar:
     _auth = _build_authenticator()
     if _auth:
         try:
-            _auth.logout(location="sidebar")  # versões novas
+            _auth.logout(location="sidebar")
         except Exception:
-            _auth.logout("Sair", "sidebar")   # versões antigas
+            _auth.logout("Sair", "sidebar")
     st.markdown("---")
 
     st.header("📁 Suba o Excel")
-    uploaded = st.file_uploader(
-        "Upload do Excel (.xlsx)",
-        type=["xlsx"],
-        help="Cada aba representa um Site; a primeira coluna deve ser 'Parametro'."
-    )
+    uploaded = st.file_uploader("Upload do Excel (.xlsx)", type=["xlsx"])
     st.markdown("---")
     with st.expander("⚙️ Opções de série temporal"):
         freq = st.selectbox("Frequência", ["Diário","Semanal","Mensal","Trimestral"], index=2)
@@ -221,6 +219,14 @@ def resample_and_smooth(s: pd.DataFrame, freq_code: str, agg: str, smooth: str, 
     elif smooth == "Exponencial (EMA)":
         out["value"] = out["value"].ewm(span=window, adjust=False).mean()
     return out
+
+# =============== Fluxo principal ===============
+if uploaded is None:
+    st.info("Faça o upload do seu Excel (`.xlsx`) no painel lateral.")
+    st.stop()
+
+# (… resto do código segue igual: leitura do Excel, comparação multi-site, gráficos, métricas, PDF …)
+
 
 # =============== Fluxo principal ===============
 if uploaded is None:
