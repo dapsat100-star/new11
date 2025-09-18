@@ -438,17 +438,51 @@ def build_report_pdf(site, date, taxa, inc, vento, img_url, fig1,
                 c.showPage(); y = start_page()
             c.drawImage(main_img, margin, y - h, width=w, height=h, mask='auto'); y -= h + 18
 
-    if fig1 is not None:
+      if fig1 is not None:
         try:
-            png1 = fig1.to_image(format="png", width=1400, height=800, scale=2, engine="kaleido")
-            img1 = ImageReader(io.BytesIO(png1)); iw, ih = img1.getSize()
+            # ===== Exporta com Kaleido PlotlyScope (independe de Chrome) =====
+            try:
+                from kaleido.scopes.plotly import PlotlyScope
+                scope = PlotlyScope(
+                    plotlyjs=None,  # usa o embutido
+                    mathjax=False
+                )
+                png1 = scope.transform(
+                    fig1.to_plotly_json(),
+                    format="png",
+                    width=1400,
+                    height=800,
+                    scale=2
+                )
+            except Exception:
+                # Fallback: tentativa via API do plotly (também kaleido)
+                png1 = fig1.to_image(
+                    format="png",
+                    width=1400,
+                    height=800,
+                    scale=2,
+                    engine="kaleido"
+                )
+
+            img1 = ImageReader(io.BytesIO(png1))
+            iw, ih = img1.getSize()
             max_w, max_h = W - 2*margin, 260
-            s = min(max_w/iw, max_h/ih); w, h = iw*s, ih*s
+            s = min(max_w/iw, max_h/ih)
+            w, h = iw*s, ih*s
+
             if y - h < margin + 30:
-                c.showPage(); y = start_page()
-            c.drawImage(img1, margin, y - h, width=w, height=h, mask='auto'); y -= h + 16
+                c.showPage()
+                y = start_page()
+
+            c.drawImage(img1, margin, y - h, width=w, height=h, mask='auto')
+            y -= h + 16
+
         except Exception as e:
-            c.setFont("Helvetica", 9); c.drawString(margin, y, f"[Falha ao exportar gráfico: {e}]"); y -= 14
+            # Mensagem amigável no PDF em caso de erro
+            c.setFont("Helvetica", 9)
+            c.drawString(margin, y, f"[Falha ao exportar gráfico: {e}]")
+            y -= 14
+
 
     c.setFont("Helvetica", 8); c.setFillColorRGB(*GRAY)
     c.drawRightString(W - margin, 12, f"pág {page_no}")
