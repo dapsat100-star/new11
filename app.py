@@ -30,11 +30,8 @@ div[data-testid="stToolbar"]{display:none!important;}
 #MainMenu{visibility:hidden;}
 footer{visibility:hidden;}
 
-/* 🔒 Só exibe "Geoportal" na lista de páginas */
-[data-testid="stSidebarNav"] ul li { display: none !important; }
-[data-testid="stSidebarNav"] ul li:has(a[title="Geoportal"]) {
-  display: list-item !important;
-}
+/* 🔒 Esconde completamente o menu de páginas nativo */
+[data-testid="stSidebarNav"]{ display:none !important; }
 
 /* Mantém o botão de colapsar visível */
 div[data-testid="collapsedControl"]{ display:block !important; }
@@ -244,6 +241,9 @@ if 'auth_status' in locals():
         except Exception:
             authenticator.logout("Sair", "sidebar")
 
+        # ✅ Link único fixo na sidebar
+        st.sidebar.page_link("pages/2_Geoportal.py", label="GEOPORTAL", icon="🗺️")
+
         # ==== Redirecionar automaticamente para Geoportal ====
         if not st.session_state.get("redirected_to_geoportal"):
             st.session_state["redirected_to_geoportal"] = True
@@ -251,7 +251,7 @@ if 'auth_status' in locals():
                 st.switch_page("pages/2_Geoportal.py")
             except Exception:
                 st.success("Login OK! Clique abaixo para abrir o Geoportal.")
-                st.page_link("pages/2_Geoportal.py", label="📷 Abrir Geoportal", icon="🗺️")
+                st.page_link("pages/2_Geoportal.py", label="GEOPORTAL", icon="🗺️")
                 st.stop()
         # =====================================================
 
@@ -267,4 +267,3 @@ st.markdown(f"""
        <a href="https://example.com/privacidade" target="_blank">{t["privacy"]}</a></div>
 </div>
 """, unsafe_allow_html=True)
-  
