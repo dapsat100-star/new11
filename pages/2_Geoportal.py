@@ -1,6 +1,9 @@
 # -*- coding: utf-8 -*-
-# Geoportal — OGMP 2.0 L5 (login+logout, comparação multi-site por subplots e PDF)
+# Geoportal — OGMP 2.0 L5 (com logo no topo-direito, menu nativo oculto e link único GEOPORTAL)
+
 import io
+import base64
+from pathlib import Path
 from typing import Dict, List, Tuple, Optional
 
 import numpy as np
@@ -9,15 +12,15 @@ import streamlit as st
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
-# ==== Auth deps (para botão Sair na sidebar) ====
+# ==== Auth ====
 import yaml
 from yaml.loader import SafeLoader
 import streamlit_authenticator as stauth
 
-# ===================== CONFIGURE AQUI =====================
+# ===================== CONFIG =====================
 DEFAULT_BASE_URL = "https://raw.githubusercontent.com/dapsat100-star/geoportal/main"
-LOGO_REL_PATH    = "images/logomavipe.jpeg"   # ajuste se necessário
-# =========================================================
+LOGO_REL_PATH    = "images/logomavipe.jpeg"   # usado no PDF; o logo da UI está em /pages/logomavipe.jpeg
+# ==================================================
 
 # Mapa (opcional)
 try:
@@ -34,11 +37,31 @@ from reportlab.lib.pagesizes import A4
 from reportlab.lib.utils import ImageReader
 from urllib.request import urlopen
 
-# ----------------- página -----------------
+# ----------------- Página -----------------
 st.set_page_config(page_title="Geoportal — Plotly", layout="wide", initial_sidebar_state="expanded")
-st.title("Plataforma Geoespacial DAP Atlas")
+st.title("📷 Plataforma Geoespacial DAP Atlas")
 
-# 🔒 Esconde o menu automático de páginas e mostra apenas um link manual "GEOPORTAL"
+# === Logo Mavipe no canto superior direito (fixo, não desloca layout) ===
+st.markdown("""
+<style>
+#top-right-logo {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  z-index: 1000;
+}
+</style>
+""", unsafe_allow_html=True)
+
+logo_ui_path = Path(__file__).parent / "logomavipe.jpeg"  # está dentro da pasta /pages
+if logo_ui_path.exists():
+    b64_logo = base64.b64encode(logo_ui_path.read_bytes()).decode("ascii")
+    st.markdown(
+        f"<div id='top-right-logo'><img src='data:image/jpeg;base64,{b64_logo}' width='120'/></div>",
+        unsafe_allow_html=True
+    )
+
+# 🔒 Esconde menu automático de páginas e exibe link único
 st.markdown("""
 <style>
 [data-testid="stSidebarNav"]{ display:none !important; }
@@ -48,7 +71,7 @@ div[data-testid="collapsedControl"]{ display:block !important; }
 with st.sidebar:
     st.page_link("pages/2_Geoportal.py", label="GEOPORTAL", icon="🗺️")
 
-# ---- Guard de sessão (não recriar login; apenas ler o estado) ----
+# ---- Guard de sessão (não recria login; apenas lê o estado) ----
 auth_ok   = st.session_state.get("authentication_status", None)
 user_name = st.session_state.get("name") or st.session_state.get("username")
 if not auth_ok:
@@ -56,7 +79,7 @@ if not auth_ok:
     st.markdown('<a href="/" target="_self">🔒 Voltar à página de login</a>', unsafe_allow_html=True)
     st.stop()
 
-# ----------------- util: garantir sidebar visível -----------------
+# ================= Sidebar =================
 def force_show_sidebar():
     st.markdown("""
     <style>
@@ -78,21 +101,23 @@ def _build_authenticator():
     except Exception:
         return None
 
-# ================= Sidebar =================
 with st.sidebar:
     force_show_sidebar()
     st.success(f"Logado como: {user_name or 'usuário'}")
     _auth = _build_authenticator()
     if _auth:
         try:
-            _auth.logout(location="sidebar")  # versões mais novas
+            _auth.logout(location="sidebar")  # versões novas
         except Exception:
             _auth.logout("Sair", "sidebar")   # versões antigas
     st.markdown("---")
 
     st.header("📁 Suba o Excel")
-    uploaded = st.file_uploader("Upload do Excel (.xlsx)", type=["xlsx"])
-   # st.caption(f"As URLs das figuras serão montadas como `{DEFAULT_BASE_URL}/images/<arquivo>` automaticamente.")
+    uploaded = st.file_uploader(
+        "Upload do Excel (.xlsx)",
+        type=["xlsx"],
+        help="Cada aba representa um Site; a primeira coluna deve ser 'Parametro'."
+    )
     st.markdown("---")
     with st.expander("⚙️ Opções de série temporal"):
         freq = st.selectbox("Frequência", ["Diário","Semanal","Mensal","Trimestral"], index=2)
@@ -432,18 +457,10 @@ def _draw_logo_scaled(c, x_right, y_top, logo_img, lw, lh, max_w=90, max_h=42):
     c.drawImage(logo_img, x_right - w, y_top - h, width=w, height=h, mask='auto')
     return w, h
 
-# ====== MODELO 2: HEADER BAND (UTC) ======
+# ====== PDF (Header Band, UTC) ======
 def build_report_pdf(site, date, taxa, inc, vento, img_url, fig1, fig2,
                      logo_rel_path: str = LOGO_REL_PATH,
                      satellite: Optional[str] = None) -> bytes:
-    """
-    Relatório com FAIXA SUPERIOR (Header Band)
-    - Faixa 80pt cor primária, título/subtítulo em branco, logo à direita
-    - Timestamp em UTC
-    - Separadores em cor de acento
-    - Imagem (se houver), gráfico linha e boxplots
-    - Rodapé com "pág X"
-    """
     # Cores (RGB 0..1)
     BAND   = (0x15/255, 0x5E/255, 0x75/255)   # #155E75
     ACCENT = (0xF5/255, 0x9E/255, 0x0B/255)   # #F59E0B
@@ -455,7 +472,7 @@ def build_report_pdf(site, date, taxa, inc, vento, img_url, fig1, fig2,
     margin = 40
     band_h = 80
 
-    # carrega logo
+    # carrega logo (via URL padrão do repositório)
     logo_url = f"{DEFAULT_BASE_URL.rstrip('/')}/{logo_rel_path.lstrip('/')}"
     logo_img, logo_w, logo_h = _image_reader_from_url(logo_url)
 
@@ -485,13 +502,12 @@ def build_report_pdf(site, date, taxa, inc, vento, img_url, fig1, fig2,
             f"Site: {site}   |   Data: {date}   |   Gerado em: {ts_utc}"
         )
 
-        # separador cor acento
+        # separador cor de acento
         c.setFillColorRGB(0, 0, 0)
         c.setStrokeColorRGB(*ACCENT); c.setLineWidth(1)
         c.line(margin, H - band_h - 6, W - margin, H - band_h - 6)
         c.setStrokeColorRGB(0, 0, 0)
 
-        # retorna y inicial
         return H - band_h - 20
 
     # primeira página
@@ -559,11 +575,27 @@ def build_report_pdf(site, date, taxa, inc, vento, img_url, fig1, fig2,
     return buf.getvalue()
 
 # ===================== Exportar PDF (UI) =====================
-# usa as variáveis calculadas acima (dfi/rec etc.)
-taxa      = getv("Taxa Metano")
-inc       = getv("Incerteza")
-vento     = getv("Velocidade do Vento")
-satellite = getv("Satelite", "Satélite", "Satellite", "Sat")  # aliases
+# Usa as variáveis calculadas acima (dfi/rec etc.)
+def _get_from_dfi(dfi: pd.DataFrame, selected_col: str, name: str, *aliases):
+    import unicodedata, re
+    def _norm_txt(s: str) -> str:
+        s = unicodedata.normalize("NFKD", str(s))
+        s = "".join(ch for ch in s if not unicodedata.category(ch).startswith("M"))
+        return re.sub(r"\s+", " ", s).strip().lower()
+    idx_norm = {_norm_txt(ix): ix for ix in dfi.index}
+    keys = [_norm_txt(name)] + [_norm_txt(a) for a in aliases]
+    for k in keys:
+        if k in idx_norm:
+            return dfi.loc[idx_norm[k], selected_col]
+    for nk, orig in idx_norm.items():
+        if any(nk.startswith(k) for k in keys if k):
+            return dfi.loc[orig, selected_col]
+    return None
+
+taxa      = _get_from_dfi(dfi, selected_col, "Taxa Metano")
+inc       = _get_from_dfi(dfi, selected_col, "Incerteza")
+vento     = _get_from_dfi(dfi, selected_col, "Velocidade do Vento")
+satellite = _get_from_dfi(dfi, selected_col, "Satelite", "Satélite", "Satellite", "Sat")
 img_url   = resolve_image_target(rec.get("Imagem"))
 
 st.markdown("---")
@@ -573,7 +605,8 @@ st.caption("Relatório com faixa superior (Header Band), logo, métricas (inclui
 if st.button("Gerar PDF (dados + gráficos)", type="primary", use_container_width=True):
     pdf_bytes = build_report_pdf(
         site=site, date=selected_label, taxa=taxa, inc=inc, vento=vento,
-        img_url=img_url, fig1=fig_line, fig2=fig_box,
+        img_url=img_url, fig1=fig_line if 'fig_line' in locals() else None,
+        fig2=fig_box if 'fig_box' in locals() else None,
         logo_rel_path=LOGO_REL_PATH, satellite=satellite
     )
     st.download_button(
