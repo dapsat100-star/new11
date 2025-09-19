@@ -217,6 +217,23 @@ def resample_and_smooth(s: pd.DataFrame, freq_code: str, agg: str, smooth: str, 
         out["value"] = out["value"].ewm(span=window, adjust=False).mean()
     return out
 
+def get_from_dfi(dfi: pd.DataFrame, selected_col: str, name: str, *aliases):
+    import unicodedata, re
+    def _norm_txt(s)->str:
+        if s is None or (isinstance(s,float) and pd.isna(s)): return ""
+        s=unicodedata.normalize("NFKD",str(s))
+        s="".join(ch for ch in s if not unicodedata.category(ch).startswith("M"))
+        return re.sub(r"\\s+"," ",s).strip().lower()
+    idx_norm={_norm_txt(ix): ix for ix in dfi.index}
+    keys=[_norm_txt(name)] + [_norm_txt(a) for a in aliases]
+    for k in keys:
+        if k and k in idx_norm:
+            return dfi.loc[idx_norm[k], selected_col]
+    for nk,orig in idx_norm.items():
+        if any(nk.startswith(k) for k in keys if k):
+            return dfi.loc[orig, selected_col]
+    return None
+
 # =============== Fluxo principal ===============
 if uploaded is None:
     st.info("Faça o upload do seu Excel (`.xlsx`) no painel lateral.")
@@ -281,30 +298,10 @@ with right:
     dfi["Parametro"] = dfi["Parametro"].astype(str).str.strip()
     dfi = dfi.set_index("Parametro", drop=True)
 
-    # helpers para pegar valores por nome (ignora acentos/caixa)
-    import unicodedata, re
-    def _norm_txt(s: str) -> str:
-        if s is None: return ""
-        s = unicodedata.normalize("NFKD", str(s))
-        s = "".join(ch for ch in s if not unicodedata.category(ch).startswith("M"))
-        s = re.sub(r"\s+", " ", s).strip().lower()
-        return s
-    _index_norm = {_norm_txt(ix): ix for ix in dfi.index}
-
-    def getv(name: str, *aliases):
-        keys = [_norm_txt(name)] + [_norm_txt(a) for a in aliases]
-        for k in keys:
-            if k in _index_norm:
-                return dfi.loc[_index_norm[k], selected_col]
-        for nk, orig in _index_norm.items():
-            if any(nk.startswith(k) for k in keys if k):
-                return dfi.loc[orig, selected_col]
-        return None
-
     k1, k2, k3 = st.columns(3)
-    k1.metric("Taxa Metano", f"{getv('Taxa Metano')}" if pd.notna(getv('Taxa Metano')) else "—")
-    k2.metric("Incerteza", f"{getv('Incerteza')}" if pd.notna(getv('Incerteza')) else "—")
-    k3.metric("Vento", f"{getv('Velocidade do Vento')}" if pd.notna(getv('Velocidade do Vento')) else "—")
+    k1.metric("Taxa Metano", f"{get_from_dfi(dfi, selected_col, 'Taxa Metano')}" if pd.notna(get_from_dfi(dfi, selected_col, 'Taxa Metano')) else "—")
+    k2.metric("Incerteza", f"{get_from_dfi(dfi, selected_col, 'Incerteza')}" if pd.notna(get_from_dfi(dfi, selected_col, 'Incerteza')) else "—")
+    k3.metric("Vento", f"{get_from_dfi(dfi, selected_col, 'Velocidade do Vento')}" if pd.notna(get_from_dfi(dfi, selected_col, 'Velocidade do Vento')) else "—")
 
     st.markdown("---")
     st.caption("Tabela completa (parâmetro → valor):")
@@ -339,142 +336,7 @@ if df_plot.empty:
     fig_line = None  # para PDF
 else:
     err_array = df_plot["incerteza"].fillna(0)
-    # Salva contexto para fallback Matplotlib no PDF (quando Kaleido/Chrome não está disponível)
     st.session_state["_plot_ctx"] = {
         "x": df_plot["date"].tolist(),
-        "y": df_plot["metano"].tolist(),
-        "yerr": err_array.tolist(),
-        "show_unc_bars": bool(show_unc_bars),
-        "show_trend": bool(show_trend),
-    }
-    line_kwargs = {"shape": "spline"} if line_spline else {}
+       
 
-    fig_line = go.Figure()
-    fig_line.add_trace(
-        go.Scatter(
-            x=df_plot["date"],
-            y=df_plot["metano"],
-            mode="lines+markers",
-            name="Taxa de Metano",
-            line=dict(**line_kwargs),
-            error_y=dict(type="data", array=err_array, visible=bool(show_unc_bars), thickness=1.2, width=3),
-        )
-    )
-
-    if show_trend and len(df_plot) >= 2:
-        x = (df_plot["date"] - df_plot["date"].min()).dt.days.values.astype(float)
-        y = df_plot["metano"].values.astype(float)
-        coeffs = np.polyfit(x, y, 1)
-        line = np.poly1d(coeffs)
-        fig_line.add_trace(
-            go.Scatter(x=df_plot["date"], y=line(x), mode="lines", name="Tendência", line=dict(dash="dash"))
-        )
-
-    fig_line.update_layout(
-        template="plotly_white", xaxis_title="Data", yaxis_title="Taxa de Metano",
-        margin=dict(l=10, r=10, t=30, b=10), height=420,
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-    )
-    st.plotly_chart(fig_line, use_container_width=True)
-
-# ===================== PDF helpers =====================
-
-def _image_reader_from_url(url: str):
-    try:
-        with urlopen(url, timeout=10) as resp:
-            img = ImageReader(resp)
-            w, h = img.getSize()
-            return img, w, h
-    except Exception:
-        return None, 0, 0
-
-
-def _draw_logo_scaled(c, x_right, y_top, logo_img, lw, lh, max_w=90, max_h=42):
-    if not logo_img:
-        return 0, 0
-    scale = min(max_w / lw, max_h / lh)
-    w, h = lw * scale, lh * scale
-    c.drawImage(logo_img, x_right - w, y_top - h, width=w, height=h, mask='auto')
-    return w, h
-
-
-def _export_fig_to_png_bytes(fig) -> Optional[bytes]:
-    """Exporta figura Plotly para PNG. Se Kaleido/Chrome não estiver disponível,
-    usa fallback com Matplotlib (sem dependências externas) a partir de dados
-    guardados em st.session_state["_plot_ctx"]."""
-    # 1) Tenta via Plotly+kaleido
-    try:
-        import plotly.io as pio
-        return pio.to_image(fig, format="png", width=1400, height=800, scale=2, engine="kaleido")
-    except Exception:
-        pass
-    # 2) Tenta via PlotlyScope (algumas builds funcionam sem Chrome do sistema)
-    try:
-        from kaleido.scopes.plotly import PlotlyScope
-        scope = PlotlyScope(plotlyjs=None, mathjax=False)
-        return scope.transform(fig.to_plotly_json(), format="png", width=1400, height=800, scale=2)
-    except Exception:
-        pass
-    # 3) Fallback puro com Matplotlib a partir do contexto salvo
-    try:
-        ctx = st.session_state.get("_plot_ctx")
-        if not ctx:
-            return None
-        x = pd.to_datetime(pd.Series(ctx.get("x", [])))
-        y = pd.to_numeric(pd.Series(ctx.get("y", [])), errors="coerce")
-        yerr = pd.to_numeric(pd.Series(ctx.get("yerr", [])), errors="coerce").fillna(0)
-        show_unc = bool(ctx.get("show_unc_bars", True))
-        show_tr = bool(ctx.get("show_trend", False))
-        if x.empty or y.empty:
-            return None
-        fig_m, ax = plt.subplots(figsize=(14, 8), dpi=100)
-        ax.plot(x, y, marker="o", linewidth=2)
-        if show_unc:
-            ax.errorbar(x, y, yerr=yerr, fmt='none', linewidth=1)
-        if show_tr and len(x) >= 2:
-            # regressão linear simples em dias
-            xd = (x - x.min()).dt.days.astype(float).to_numpy()
-            coeffs = np.polyfit(xd, y.to_numpy(dtype=float), 1)
-            yhat = np.poly1d(coeffs)(xd)
-            ax.plot(x, yhat, linestyle='--')
-        ax.set_xlabel("Data"); ax.set_ylabel("Taxa de Metano")
-        fig_m.autofmt_xdate()
-        buf = io.BytesIO()
-        fig_m.savefig(buf, format="png", bbox_inches="tight")
-        plt.close(fig_m)
-        buf.seek(0)
-        return buf.getvalue()
-    except Exception:
-        return None
-
-with right:
-    taxa      = _get_from_dfi(dfi, selected_col, "Taxa Metano")
-    inc       = _get_from_dfi(dfi, selected_col, "Incerteza")
-    vento     = _get_from_dfi(dfi, selected_col, "Velocidade do Vento")
-    satellite = _get_from_dfi(dfi, selected_col, "Satelite", "Satélite", "Satellite", "Sat")
-
-img_url   = resolve_image_target(rec.get("Imagem"))
-
-st.markdown("---")
-st.subheader("📄 Exportar PDF")
-st.caption("Relatório com faixa superior, logo, métricas, imagem e o gráfico atual (linha + barras de incerteza). Timestamp em UTC.")
-
-if st.button("Gerar PDF (dados + gráfico)", type="primary", use_container_width=True):
-    pdf_bytes = build_report_pdf(
-        site=site,
-        date=selected_label,
-        taxa=taxa,
-        inc=inc,
-        vento=vento,
-        img_url=img_url,
-        fig1=fig_line,
-        logo_rel_path=LOGO_REL_PATH,
-        satellite=satellite,
-    )
-    st.download_button(
-        label="⬇️ Baixar PDF",
-        data=pdf_bytes,
-        file_name=f"relatorio_geoportal_{site}_{selected_label}.pdf".replace(" ", "_"),
-        mime="application/pdf",
-        use_container_width=True,
-    )
