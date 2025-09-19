@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+   # -*- coding: utf-8 -*-
 # pages/2_Geoportal.py
 # Geoportal — 1 único gráfico: linha (spline opcional) + barras de incerteza
 
@@ -11,10 +11,6 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 import plotly.graph_objects as go
-# === (Fallback de imagem sem Chrome) Matplotlib/Agg ===
-import matplotlib
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
 
 # ==== Auth (apenas para botão Sair e guard) ====
 import yaml
@@ -40,6 +36,11 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.utils import ImageReader
 from urllib.request import urlopen
+
+# Fallback de renderização do gráfico para o PDF (Matplotlib)
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
 
 # ----------------- Página -----------------
 st.set_page_config(page_title="Geoportal — Metano", layout="wide", initial_sidebar_state="expanded")
@@ -218,12 +219,13 @@ def resample_and_smooth(s: pd.DataFrame, freq_code: str, agg: str, smooth: str, 
     return out
 
 def get_from_dfi(dfi: pd.DataFrame, selected_col: str, name: str, *aliases):
+    """Busca valor por nome do parâmetro (case/acento-insensitive)."""
     import unicodedata, re
     def _norm_txt(s)->str:
         if s is None or (isinstance(s,float) and pd.isna(s)): return ""
         s=unicodedata.normalize("NFKD",str(s))
         s="".join(ch for ch in s if not unicodedata.category(ch).startswith("M"))
-        return re.sub(r"\\s+"," ",s).strip().lower()
+        return re.sub(r"\s+"," ",s).strip().lower()
     idx_norm={_norm_txt(ix): ix for ix in dfi.index}
     keys=[_norm_txt(name)] + [_norm_txt(a) for a in aliases]
     for k in keys:
@@ -258,11 +260,7 @@ if df_site.index.name is not None:
     df_site = df_site.reset_index(drop=True)
 
 date_cols, labels, stamps = extract_dates_from_first_row(df_site)
-order = sorted(
-    range(len(date_cols)),
-    key=lambda i: (pd.Timestamp.min if pd.isna(stamps[i]) else stamps[i])
-)
-
+order = sorted(range(len(date_cols)), key=lambda i: (pd.Timestamp.min if pd.isna(stamps[i]) else stamps[i]))
 date_cols_sorted = [date_cols[i] for i in order]
 labels_sorted = [labels[date_cols[i]] for i in order]
 stamps_sorted = [stamps[i] for i in order]
@@ -299,9 +297,13 @@ with right:
     dfi = dfi.set_index("Parametro", drop=True)
 
     k1, k2, k3 = st.columns(3)
-    k1.metric("Taxa Metano", f"{get_from_dfi(dfi, selected_col, 'Taxa Metano')}" if pd.notna(get_from_dfi(dfi, selected_col, 'Taxa Metano')) else "—")
-    k2.metric("Incerteza", f"{get_from_dfi(dfi, selected_col, 'Incerteza')}" if pd.notna(get_from_dfi(dfi, selected_col, 'Incerteza')) else "—")
-    k3.metric("Vento", f"{get_from_dfi(dfi, selected_col, 'Velocidade do Vento')}" if pd.notna(get_from_dfi(dfi, selected_col, 'Velocidade do Vento')) else "—")
+    v_taxa  = get_from_dfi(dfi, selected_col, "Taxa Metano")
+    v_inc   = get_from_dfi(dfi, selected_col, "Incerteza")
+    v_vento = get_from_dfi(dfi, selected_col, "Velocidade do Vento")
+
+    k1.metric("Taxa Metano", f"{v_taxa}" if pd.notna(v_taxa) else "—")
+    k2.metric("Incerteza", f"{v_inc}" if pd.notna(v_inc) else "—")
+    k3.metric("Vento", f"{v_vento}" if pd.notna(v_vento) else "—")
 
     st.markdown("---")
     st.caption("Tabela completa (parâmetro → valor):")
@@ -336,7 +338,230 @@ if df_plot.empty:
     fig_line = None  # para PDF
 else:
     err_array = df_plot["incerteza"].fillna(0)
+    # Salva contexto para fallback no PDF
     st.session_state["_plot_ctx"] = {
         "x": df_plot["date"].tolist(),
-       
+        "y": df_plot["metano"].tolist(),
+        "yerr": err_array.tolist(),
+        "show_unc_bars": bool(show_unc_bars),
+        "show_trend": bool(show_trend),
+    }
+    line_kwargs = {"shape": "spline"} if line_spline else {}
+
+    fig_line = go.Figure()
+    fig_line.add_trace(
+        go.Scatter(
+            x=df_plot["date"],
+            y=df_plot["metano"],
+            mode="lines+markers",
+            name="Taxa de Metano",
+            line=dict(**line_kwargs),
+            error_y=dict(type="data", array=err_array, visible=bool(show_unc_bars), thickness=1.2, width=3),
+        )
+    )
+
+    if show_trend and len(df_plot) >= 2:
+        x = (df_plot["date"] - df_plot["date"].min()).dt.days.values.astype(float)
+        y = df_plot["metano"].values.astype(float)
+        coeffs = np.polyfit(x, y, 1)
+        line = np.poly1d(coeffs)
+        fig_line.add_trace(
+            go.Scatter(x=df_plot["date"], y=line(x), mode="lines", name="Tendência", line=dict(dash="dash"))
+        )
+
+    fig_line.update_layout(
+        template="plotly_white", xaxis_title="Data", yaxis_title="Taxa de Metano",
+        margin=dict(l=10, r=10, t=30, b=10), height=420,
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+    )
+    st.plotly_chart(fig_line, use_container_width=True)
+
+# ===================== PDF helpers =====================
+
+def _image_reader_from_url(url: str):
+    try:
+        with urlopen(url, timeout=10) as resp:
+            img = ImageReader(resp); w, h = img.getSize()
+            return img, w, h
+    except Exception:
+        return None, 0, 0
+
+def _draw_logo_scaled(c, x_right, y_top, logo_img, lw, lh, max_w=90, max_h=42):
+    if not logo_img: return 0, 0
+    scale = min(max_w / lw, max_h / lh)
+    w, h = lw * scale, lh * scale
+    c.drawImage(logo_img, x_right - w, y_top - h, width=w, height=h, mask='auto')
+    return w, h
+
+def _export_fig_to_png_bytes(fig) -> Optional[bytes]:
+    """Exporta figura Plotly para PNG.
+    1) plotly.io + kaleido; 2) kaleido PlotlyScope; 3) Matplotlib (fallback)."""
+    # 1) Plotly + kaleido
+    try:
+        import plotly.io as pio
+        return pio.to_image(fig, format="png", width=1400, height=800, scale=2, engine="kaleido")
+    except Exception:
+        pass
+    # 2) PlotlyScope
+    try:
+        from kaleido.scopes.plotly import PlotlyScope
+        scope = PlotlyScope(plotlyjs=None, mathjax=False)
+        return scope.transform(fig.to_plotly_json(), format="png", width=1400, height=800, scale=2)
+    except Exception:
+        pass
+    # 3) Matplotlib fallback usando o contexto salvo
+    try:
+        ctx = st.session_state.get("_plot_ctx")
+        if not ctx:
+            return None
+        x = pd.to_datetime(pd.Series(ctx.get("x", [])))
+        y = pd.to_numeric(pd.Series(ctx.get("y", [])), errors="coerce")
+        yerr = pd.to_numeric(pd.Series(ctx.get("yerr", [])), errors="coerce").fillna(0)
+        show_unc = bool(ctx.get("show_unc_bars", True))
+        show_tr = bool(ctx.get("show_trend", False))
+        if x.empty or y.empty:
+            return None
+        fig_m, ax = plt.subplots(figsize=(14, 8), dpi=100)
+        ax.plot(x, y, marker="o", linewidth=2)
+        if show_unc:
+            ax.errorbar(x, y, yerr=yerr, fmt='none', linewidth=1)
+        if show_tr and len(x) >= 2:
+            xd = (x - x.min()).dt.days.astype(float).to_numpy()
+            coeffs = np.polyfit(xd, y.to_numpy(dtype=float), 1)
+            yhat = np.poly1d(coeffs)(xd)
+            ax.plot(x, yhat, linestyle='--')
+        ax.set_xlabel("Data"); ax.set_ylabel("Taxa de Metano")
+        fig_m.autofmt_xdate()
+        buf = io.BytesIO()
+        fig_m.savefig(buf, format="png", bbox_inches="tight")
+        plt.close(fig_m)
+        buf.seek(0)
+        return buf.getvalue()
+    except Exception:
+        return None
+
+def build_report_pdf(
+    site,
+    date,
+    taxa,
+    inc,
+    vento,
+    img_url,
+    fig1,
+    logo_rel_path: str = LOGO_REL_PATH,
+    satellite: Optional[str] = None,
+) -> bytes:
+    BAND   = (0x15/255, 0x5E/255, 0x75/255)
+    ACCENT = (0xF5/255, 0x9E/255, 0x0B/255)
+    GRAY   = (0x6B/255, 0x72/255, 0x80/255)
+
+    buf = io.BytesIO()
+    c   = canvas.Canvas(buf, pagesize=A4)
+    W, H = A4
+    margin = 40
+    band_h = 80
+
+    logo_url = f"{DEFAULT_BASE_URL.rstrip('/')}/{logo_rel_path.lstrip('/')}"
+    logo_img, logo_w, logo_h = _image_reader_from_url(logo_url)
+
+    page_no = 0
+    def start_page():
+        nonlocal page_no
+        page_no += 1
+        c.setFillColorRGB(*BAND)
+        c.rect(0, H - band_h, W, band_h, fill=1, stroke=0)
+        _draw_logo_scaled(c, x_right=W - margin, y_top=H - (band_h/2 - 14),
+                          logo_img=logo_img, lw=logo_w, lh=logo_h, max_w=90, max_h=42)
+        ts_utc = datetime.now(timezone.utc).strftime('%d/%m/%Y %H:%M UTC')
+        c.setFillColorRGB(1,1,1); c.setFont("Helvetica-Bold", 16)
+        c.drawString(margin, H - band_h + 28, "Relatório Geoportal de Metano")
+        c.setFont("Helvetica", 10)
+        c.drawString(margin, H - band_h + 12, f"Site: {site}   |   Data: {date}   |   Gerado em: {ts_utc}")
+        c.setFillColorRGB(0,0,0)
+        c.setStrokeColorRGB(*ACCENT); c.setLineWidth(1)
+        c.line(margin, H - band_h - 6, W - margin, H - band_h - 6)
+        c.setStrokeColorRGB(0,0,0)
+        return H - band_h - 20
+
+    y = start_page()
+
+    def _s(v): return "—" if v is None or (isinstance(v,float) and pd.isna(v)) else str(v)
+
+    # Métricas
+    c.setFont("Helvetica-Bold", 12); c.drawString(margin, y, "Métricas"); y -= 16
+    c.setFont("Helvetica", 11)
+    for line in (
+        f"• Taxa Metano: {_s(taxa)}",
+        f"• Incerteza: {_s(inc)}",
+        f"• Velocidade do Vento: {_s(vento)}",
+        f"• Satélite: {_s(satellite)}",
+    ):
+        c.drawString(margin, y, line); y -= 14
+
+    y -= 10; c.setStrokeColorRGB(*ACCENT); c.setLineWidth(0.7)
+    c.line(margin, y, W - margin, y); y -= 14; c.setStrokeColorRGB(0,0,0)
+
+    # Imagem principal (se houver)
+    if img_url:
+        main_img, iw, ih = _image_reader_from_url(img_url)
+        if main_img:
+            max_w, max_h = W - 2*margin, 190
+            s = min(max_w/iw, max_h/ih); w, h = iw*s, ih*s
+            if y - h < margin + 30:
+                c.showPage(); y = start_page()
+            c.drawImage(main_img, margin, y - h, width=w, height=h, mask='auto'); y -= h + 18
+
+    # Gráfico
+    if fig1 is not None:
+        try:
+            png1 = _export_fig_to_png_bytes(fig1)
+            if png1 is None:
+                raise RuntimeError("Exportação PNG indisponível no ambiente")
+            img1 = ImageReader(io.BytesIO(png1))
+            iw, ih = img1.getSize()
+            max_w, max_h = W - 2*margin, 260
+            s = min(max_w/iw, max_h/ih); w, h = iw*s, ih*s
+            if y - h < margin + 30:
+                c.showPage(); y = start_page()
+            c.drawImage(img1, margin, y - h, width=w, height=h, mask='auto'); y -= h + 16
+        except Exception as e:
+            c.setFont("Helvetica", 9)
+            c.drawString(margin, y, f"[Falha ao exportar gráfico: {e}]"); y -= 14
+
+    # Rodapé
+    c.setFont("Helvetica", 8); c.setFillColorRGB(*GRAY)
+    c.drawRightString(W - margin, 12, f"pág {page_no}")
+    c.setFillColorRGB(0,0,0)
+
+    c.showPage(); c.save(); buf.seek(0)
+    return buf.getvalue()
+
+# ===================== Exportar PDF (UI) =====================
+
+with right:
+    taxa      = get_from_dfi(dfi, selected_col, "Taxa Metano")
+    inc       = get_from_dfi(dfi, selected_col, "Incerteza")
+    vento     = get_from_dfi(dfi, selected_col, "Velocidade do Vento")
+    satellite = get_from_dfi(dfi, selected_col, "Satelite", "Satélite", "Satellite", "Sat")
+
+img_url = resolve_image_target(rec.get("Imagem"))
+
+st.markdown("---")
+st.subheader("📄 Exportar PDF")
+st.caption("Relatório com faixa superior, logo, métricas, imagem e o gráfico atual (linha + barras de incerteza). Timestamp em UTC.")
+
+if st.button("Gerar PDF (dados + gráfico)", type="primary", use_container_width=True):
+    pdf_bytes = build_report_pdf(
+        site=site, date=selected_label, taxa=taxa, inc=inc, vento=vento,
+        img_url=img_url, fig1=fig_line,
+        logo_rel_path=LOGO_REL_PATH, satellite=satellite
+    )
+    st.download_button(
+        label="⬇️ Baixar PDF",
+        data=pdf_bytes,
+        file_name=f"relatorio_geoportal_{site}_{selected_label}.pdf".replace(" ", "_"),
+        mime="application/pdf",
+        use_container_width=True
+    )
+
 
