@@ -1,4 +1,4 @@
-   # -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 # pages/2_Geoportal.py
 # Geoportal — 1 único gráfico: linha (spline opcional) + barras de incerteza
 
@@ -501,7 +501,7 @@ def build_report_pdf(
     y -= 10; c.setStrokeColorRGB(*ACCENT); c.setLineWidth(0.7)
     c.line(margin, y, W - margin, y); y -= 14; c.setStrokeColorRGB(0,0,0)
 
-    # Imagem principal (se houver)
+    # Figura 1 — Imagem principal (se houver) + LEGENDA
     if img_url:
         main_img, iw, ih = _image_reader_from_url(img_url)
         if main_img:
@@ -509,9 +509,13 @@ def build_report_pdf(
             s = min(max_w/iw, max_h/ih); w, h = iw*s, ih*s
             if y - h < margin + 30:
                 c.showPage(); y = start_page()
-            c.drawImage(main_img, margin, y - h, width=w, height=h, mask='auto'); y -= h + 18
+            c.drawImage(main_img, margin, y - h, width=w, height=h, mask='auto')
+            # legenda da Figura 1
+            c.setFont("Helvetica-Oblique", 9)
+            c.drawString(margin, y - h - 12, "Figura 1 - Concentração de Metano em ppb")
+            y -= h + 26
 
-    # Gráfico
+    # Figura 2 — Gráfico + LEGENDA
     if fig1 is not None:
         try:
             png1 = _export_fig_to_png_bytes(fig1)
@@ -523,7 +527,11 @@ def build_report_pdf(
             s = min(max_w/iw, max_h/ih); w, h = iw*s, ih*s
             if y - h < margin + 30:
                 c.showPage(); y = start_page()
-            c.drawImage(img1, margin, y - h, width=w, height=h, mask='auto'); y -= h + 16
+            c.drawImage(img1, margin, y - h, width=w, height=h, mask='auto')
+            # legenda da Figura 2
+            c.setFont("Helvetica-Oblique", 9)
+            c.drawString(margin, y - h - 12, "Figura 2 - Série Histórica de Concentração de Metano")
+            y -= h + 26
         except Exception as e:
             c.setFont("Helvetica", 9)
             c.drawString(margin, y, f"[Falha ao exportar gráfico: {e}]"); y -= 14
@@ -563,5 +571,3 @@ if st.button("Gerar PDF (dados + gráfico)", type="primary", use_container_width
         mime="application/pdf",
         use_container_width=True
     )
-
-
