@@ -11,6 +11,10 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 import plotly.graph_objects as go
+# === (Fallback de imagem sem Chrome) Matplotlib/Agg ===
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
 
 # ==== Auth (apenas para botão Sair e guard) ====
 import yaml
@@ -335,6 +339,14 @@ if df_plot.empty:
     fig_line = None  # para PDF
 else:
     err_array = df_plot["incerteza"].fillna(0)
+    # Salva contexto para fallback Matplotlib no PDF (quando Kaleido/Chrome não está disponível)
+    st.session_state["_plot_ctx"] = {
+        "x": df_plot["date"].tolist(),
+        "y": df_plot["metano"].tolist(),
+        "yerr": err_array.tolist(),
+        "show_unc_bars": bool(show_unc_bars),
+        "show_trend": bool(show_trend),
+    }
     line_kwargs = {"shape": "spline"} if line_spline else {}
 
     fig_line = go.Figure()
@@ -387,168 +399,53 @@ def _draw_logo_scaled(c, x_right, y_top, logo_img, lw, lh, max_w=90, max_h=42):
 
 
 def _export_fig_to_png_bytes(fig) -> Optional[bytes]:
-    """Tenta várias rotas para exportar a figura Plotly para PNG.
-    Retorna bytes do PNG ou None se falhar."""
+    """Exporta figura Plotly para PNG. Se Kaleido/Chrome não estiver disponível,
+    usa fallback com Matplotlib (sem dependências externas) a partir de dados
+    guardados em st.session_state["_plot_ctx"]."""
+    # 1) Tenta via Plotly+kaleido
     try:
         import plotly.io as pio
         return pio.to_image(fig, format="png", width=1400, height=800, scale=2, engine="kaleido")
     except Exception:
-        try:
-            from kaleido.scopes.plotly import PlotlyScope
-            scope = PlotlyScope(plotlyjs=None, mathjax=False)
-            return scope.transform(fig.to_plotly_json(), format="png", width=1400, height=800, scale=2)
-        except Exception:
+        pass
+    # 2) Tenta via PlotlyScope (algumas builds funcionam sem Chrome do sistema)
+    try:
+        from kaleido.scopes.plotly import PlotlyScope
+        scope = PlotlyScope(plotlyjs=None, mathjax=False)
+        return scope.transform(fig.to_plotly_json(), format="png", width=1400, height=800, scale=2)
+    except Exception:
+        pass
+    # 3) Fallback puro com Matplotlib a partir do contexto salvo
+    try:
+        ctx = st.session_state.get("_plot_ctx")
+        if not ctx:
             return None
-
-
-def build_report_pdf(
-    site,
-    date,
-    taxa,
-    inc,
-    vento,
-    img_url,
-    fig1,
-    logo_rel_path: str = LOGO_REL_PATH,
-    satellite: Optional[str] = None,
-) -> bytes:
-    BAND = (0x15 / 255, 0x5E / 255, 0x75 / 255)
-    ACCENT = (0xF5 / 255, 0x9E / 255, 0x0B / 255)
-    GRAY = (0x6B / 255, 0x72 / 255, 0x80 / 255)
-
-    buf = io.BytesIO()
-    c = canvas.Canvas(buf, pagesize=A4)
-    W, H = A4
-    margin = 40
-    band_h = 80
-
-    logo_url = f"{DEFAULT_BASE_URL.rstrip('/')}/{logo_rel_path.lstrip('/')}"
-    logo_img, logo_w, logo_h = _image_reader_from_url(logo_url)
-
-    page_no = 0
-
-    def start_page():
-        nonlocal page_no
-        page_no += 1
-        c.setFillColorRGB(*BAND)
-        c.rect(0, H - band_h, W, band_h, fill=1, stroke=0)
-        _draw_logo_scaled(
-            c,
-            x_right=W - margin,
-            y_top=H - (band_h / 2 - 14),
-            logo_img=logo_img,
-            lw=logo_w,
-            lh=logo_h,
-            max_w=90,
-            max_h=42,
-        )
-        ts_utc = datetime.now(timezone.utc).strftime('%d/%m/%Y %H:%M UTC')
-        c.setFillColorRGB(1, 1, 1)
-        c.setFont("Helvetica-Bold", 16)
-        c.drawString(margin, H - band_h + 28, "Relatório Geoportal de Metano")
-        c.setFont("Helvetica", 10)
-        c.drawString(
-            margin,
-            H - band_h + 12,
-            f"Site: {site}   |   Data: {date}   |   Gerado em: {ts_utc}",
-        )
-        c.setFillColorRGB(0, 0, 0)
-        c.setStrokeColorRGB(*ACCENT)
-        c.setLineWidth(1)
-        c.line(margin, H - band_h - 6, W - margin, H - band_h - 6)
-        c.setStrokeColorRGB(0, 0, 0)
-        return H - band_h - 20
-
-    y = start_page()
-
-    def _s(v):
-        return "—" if v is None or (isinstance(v, float) and pd.isna(v)) else str(v)
-
-    c.setFont("Helvetica-Bold", 12)
-    c.drawString(margin, y, "Métricas")
-    y -= 16
-    c.setFont("Helvetica", 11)
-    for line in (
-        f"• Taxa Metano: {_s(taxa)}",
-        f"• Incerteza: {_s(inc)}",
-        f"• Velocidade do Vento: {_s(vento)}",
-        f"• Satélite: {_s(satellite)}",
-    ):
-        c.drawString(margin, y, line)
-        y -= 14
-
-    y -= 10
-    c.setStrokeColorRGB(*ACCENT)
-    c.setLineWidth(0.7)
-    c.line(margin, y, W - margin, y)
-    y -= 14
-    c.setStrokeColorRGB(0, 0, 0)
-
-    # Imagem principal
-    if img_url:
-        main_img, iw, ih = _image_reader_from_url(img_url)
-        if main_img:
-            max_w, max_h = W - 2 * margin, 190
-            s = min(max_w / iw, max_h / ih)
-            w, h = iw * s, ih * s
-            if y - h < margin + 30:
-                c.showPage()
-                y = start_page()
-            c.drawImage(main_img, margin, y - h, width=w, height=h, mask='auto')
-            y -= h + 18
-
-    # Gráfico
-    if fig1 is not None:
-        try:
-            png1 = _export_fig_to_png_bytes(fig1)
-            if png1 is None:
-                raise RuntimeError("Exportação PNG indisponível (Kaleido/Chrome ausente)")
-            img1 = ImageReader(io.BytesIO(png1))
-            iw, ih = img1.getSize()
-            max_w, max_h = W - 2 * margin, 260
-            s = min(max_w / iw, max_h / ih)
-            w, h = iw * s, ih * s
-            if y - h < margin + 30:
-                c.showPage()
-                y = start_page()
-            c.drawImage(img1, margin, y - h, width=w, height=h, mask='auto')
-            y -= h + 16
-        except Exception as e:
-            c.setFont("Helvetica", 9)
-            c.drawString(margin, y, f"[Falha ao exportar gráfico: {e}]")
-            y -= 14
-
-    c.setFont("Helvetica", 8)
-    c.setFillColorRGB(*GRAY)
-    c.drawRightString(W - margin, 12, f"pág {page_no}")
-    c.setFillColorRGB(0, 0, 0)
-
-    c.showPage()
-    c.save()
-    buf.seek(0)
-    return buf.getvalue()
-
-# ===================== Exportar PDF (UI) =====================
-
-def _get_from_dfi(dfi: pd.DataFrame, selected_col: str, name: str, *aliases):
-    import unicodedata, re
-
-    def _norm_txt(s) -> str:
-        if s is None or (isinstance(s, float) and pd.isna(s)):
-            return ""
-        s = unicodedata.normalize("NFKD", str(s))
-        s = "".join(ch for ch in s if not unicodedata.category(ch).startswith("M"))
-        return re.sub(r"\s+", " ", s).strip().lower()
-
-    idx_norm = {_norm_txt(ix): ix for ix in dfi.index}
-    keys = [_norm_txt(name)] + [_norm_txt(a) for a in aliases]
-    for k in keys:
-        if k and k in idx_norm:
-            return dfi.loc[idx_norm[k], selected_col]
-    for nk, orig in idx_norm.items():
-        if any(nk.startswith(k) for k in keys if k):
-            return dfi.loc[orig, selected_col]
-    return None
+        x = pd.to_datetime(pd.Series(ctx.get("x", [])))
+        y = pd.to_numeric(pd.Series(ctx.get("y", [])), errors="coerce")
+        yerr = pd.to_numeric(pd.Series(ctx.get("yerr", [])), errors="coerce").fillna(0)
+        show_unc = bool(ctx.get("show_unc_bars", True))
+        show_tr = bool(ctx.get("show_trend", False))
+        if x.empty or y.empty:
+            return None
+        fig_m, ax = plt.subplots(figsize=(14, 8), dpi=100)
+        ax.plot(x, y, marker="o", linewidth=2)
+        if show_unc:
+            ax.errorbar(x, y, yerr=yerr, fmt='none', linewidth=1)
+        if show_tr and len(x) >= 2:
+            # regressão linear simples em dias
+            xd = (x - x.min()).dt.days.astype(float).to_numpy()
+            coeffs = np.polyfit(xd, y.to_numpy(dtype=float), 1)
+            yhat = np.poly1d(coeffs)(xd)
+            ax.plot(x, yhat, linestyle='--')
+        ax.set_xlabel("Data"); ax.set_ylabel("Taxa de Metano")
+        fig_m.autofmt_xdate()
+        buf = io.BytesIO()
+        fig_m.savefig(buf, format="png", bbox_inches="tight")
+        plt.close(fig_m)
+        buf.seek(0)
+        return buf.getvalue()
+    except Exception:
+        return None
 
 with right:
     taxa      = _get_from_dfi(dfi, selected_col, "Taxa Metano")
