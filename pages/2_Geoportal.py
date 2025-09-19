@@ -41,7 +41,8 @@ from urllib.request import urlopen
 st.set_page_config(page_title="Geoportal — Metano", layout="wide", initial_sidebar_state="expanded")
 
 # === CSS para UI ===
-st.markdown("""
+st.markdown(
+    """
 <style>
 header[data-testid="stHeader"] { display: none !important; }
 section[data-testid="stSidebar"], aside[data-testid="stSidebar"] {
@@ -50,7 +51,9 @@ section[data-testid="stSidebar"], aside[data-testid="stSidebar"] {
 div[data-testid="collapsedControl"]{ display:block !important; }
 #top-right-logo { position: fixed; top: 16px; right: 16px; z-index: 1000; }
 </style>
-""", unsafe_allow_html=True)
+""",
+    unsafe_allow_html=True,
+)
 
 # === Logo no canto superior direito ===
 logo_ui_path = Path(__file__).parent / "logomavipe.jpeg"  # arquivo dentro de /pages
@@ -58,7 +61,7 @@ if logo_ui_path.exists():
     b64_logo = base64.b64encode(logo_ui_path.read_bytes()).decode("ascii")
     st.markdown(
         f"<div id='top-right-logo'><img src='data:image/jpeg;base64,{b64_logo}' width='120'/></div>",
-        unsafe_allow_html=True
+        unsafe_allow_html=True,
     )
 
 st.title("📷 Geoportal de Metano — gráfico único")
@@ -229,8 +232,16 @@ site_names = sorted(book.keys())
 site = st.selectbox("Selecione o Site", site_names)
 df_site = book[site]
 
+# Garante índice numérico para a linha 0 usada pelos rótulos de Data
+if df_site.index.name is not None:
+    df_site = df_site.reset_index(drop=True)
+
 date_cols, labels, stamps = extract_dates_from_first_row(df_site)
-order = sorted(range(len(date_cols)), key=lambda i: (pd.Timestamp.min if pd.isna(stamps[i]) else stamps[i]))
+order = sorted(
+    range(len(date_cols)),
+    key=lambda i: (pd.Timestamp.min if pd.isna(stamps[i]) else stamps[i])
+)
+
 date_cols_sorted = [date_cols[i] for i in order]
 labels_sorted = [labels[date_cols[i]] for i in order]
 stamps_sorted = [stamps[i] for i in order]
@@ -251,9 +262,12 @@ with left:
         st.error("Imagem não encontrada para essa data.")
     if HAVE_MAP and (rec.get("_lat") is not None and rec.get("_long") is not None):
         with st.expander("🗺️ Mostrar mapa (opcional)", expanded=False):
-            m = folium.Map(location=[float(rec["_lat"]), float(rec["_long"])], zoom_start=13, tiles="OpenStreetMap")
-            folium.Marker([float(rec["_lat"]), float(rec["_long"])], tooltip=site).add_to(m)
-            st_folium(m, height=400, use_container_width=True)
+            try:
+                m = folium.Map(location=[float(rec["_lat"]), float(rec["_long"])], zoom_start=13, tiles="OpenStreetMap")
+                folium.Marker([float(rec["_lat"]), float(rec["_long"])], tooltip=site).add_to(m)
+                st_folium(m, height=400, use_container_width=True)
+            except Exception as e:
+                st.caption(f"[Mapa indisponível: {e}]")
 
 with right:
     st.subheader("Detalhes do Registro")
@@ -352,99 +366,188 @@ else:
     st.plotly_chart(fig_line, use_container_width=True)
 
 # ===================== PDF helpers =====================
+
 def _image_reader_from_url(url: str):
     try:
         with urlopen(url, timeout=10) as resp:
-            img = ImageReader(resp); w, h = img.getSize(); return img, w, h
+            img = ImageReader(resp)
+            w, h = img.getSize()
+            return img, w, h
     except Exception:
         return None, 0, 0
 
+
 def _draw_logo_scaled(c, x_right, y_top, logo_img, lw, lh, max_w=90, max_h=42):
-    if not logo_img: return 0, 0
-    scale = min(max_w/lw, max_h/lh); w, h = lw*scale, lh*scale
-    c.drawImage(logo_img, x_right - w, y_top - h, width=w, height=h, mask='auto'); return w, h
+    if not logo_img:
+        return 0, 0
+    scale = min(max_w / lw, max_h / lh)
+    w, h = lw * scale, lh * scale
+    c.drawImage(logo_img, x_right - w, y_top - h, width=w, height=h, mask='auto')
+    return w, h
 
-def build_report_pdf(site, date, taxa, inc, vento, img_url, fig1,
-                     logo_rel_path: str = LOGO_REL_PATH,
-                     satellite: Optional[str] = None) -> bytes:
-    BAND=(0x15/255,0x5E/255,0x75/255); ACCENT=(0xF5/255,0x9E/255,0x0B/255); GRAY=(0x6B/255,0x72/255,0x80/255)
-    buf=io.BytesIO(); c=canvas.Canvas(buf, pagesize=A4); W,H=A4; margin=40; band_h=80
 
-    logo_url=f"{DEFAULT_BASE_URL.rstrip('/')}/{logo_rel_path.lstrip('/')}"
-    logo_img,logo_w,logo_h=_image_reader_from_url(logo_url)
+def _export_fig_to_png_bytes(fig) -> Optional[bytes]:
+    """Tenta várias rotas para exportar a figura Plotly para PNG.
+    Retorna bytes do PNG ou None se falhar."""
+    try:
+        import plotly.io as pio
+        return pio.to_image(fig, format="png", width=1400, height=800, scale=2, engine="kaleido")
+    except Exception:
+        try:
+            from kaleido.scopes.plotly import PlotlyScope
+            scope = PlotlyScope(plotlyjs=None, mathjax=False)
+            return scope.transform(fig.to_plotly_json(), format="png", width=1400, height=800, scale=2)
+        except Exception:
+            return None
 
-    page_no=0
+
+def build_report_pdf(
+    site,
+    date,
+    taxa,
+    inc,
+    vento,
+    img_url,
+    fig1,
+    logo_rel_path: str = LOGO_REL_PATH,
+    satellite: Optional[str] = None,
+) -> bytes:
+    BAND = (0x15 / 255, 0x5E / 255, 0x75 / 255)
+    ACCENT = (0xF5 / 255, 0x9E / 255, 0x0B / 255)
+    GRAY = (0x6B / 255, 0x72 / 255, 0x80 / 255)
+
+    buf = io.BytesIO()
+    c = canvas.Canvas(buf, pagesize=A4)
+    W, H = A4
+    margin = 40
+    band_h = 80
+
+    logo_url = f"{DEFAULT_BASE_URL.rstrip('/')}/{logo_rel_path.lstrip('/')}"
+    logo_img, logo_w, logo_h = _image_reader_from_url(logo_url)
+
+    page_no = 0
+
     def start_page():
-        nonlocal page_no; page_no+=1
-        c.setFillColorRGB(*BAND); c.rect(0,H-band_h,W,band_h,fill=1,stroke=0)
-        _draw_logo_scaled(c,x_right=W-margin,y_top=H-(band_h/2-14),logo_img=logo_img,lw=logo_w,lh=logo_h,max_w=90,max_h=42)
-        ts_utc=datetime.now(timezone.utc).strftime('%d/%m/%Y %H:%M UTC')
-        c.setFillColorRGB(1,1,1); c.setFont("Helvetica-Bold",16); c.drawString(margin,H-band_h+28,"Relatório Geoportal de Metano")
-        c.setFont("Helvetica",10); c.drawString(margin,H-band_h+12,f"Site: {site}   |   Data: {date}   |   Gerado em: {ts_utc}")
-        c.setFillColorRGB(0,0,0); c.setStrokeColorRGB(*ACCENT); c.setLineWidth(1); c.line(margin,H-band_h-6,W-margin,H-band_h-6)
-        c.setStrokeColorRGB(0,0,0); return H-band_h-20
+        nonlocal page_no
+        page_no += 1
+        c.setFillColorRGB(*BAND)
+        c.rect(0, H - band_h, W, band_h, fill=1, stroke=0)
+        _draw_logo_scaled(
+            c,
+            x_right=W - margin,
+            y_top=H - (band_h / 2 - 14),
+            logo_img=logo_img,
+            lw=logo_w,
+            lh=logo_h,
+            max_w=90,
+            max_h=42,
+        )
+        ts_utc = datetime.now(timezone.utc).strftime('%d/%m/%Y %H:%M UTC')
+        c.setFillColorRGB(1, 1, 1)
+        c.setFont("Helvetica-Bold", 16)
+        c.drawString(margin, H - band_h + 28, "Relatório Geoportal de Metano")
+        c.setFont("Helvetica", 10)
+        c.drawString(
+            margin,
+            H - band_h + 12,
+            f"Site: {site}   |   Data: {date}   |   Gerado em: {ts_utc}",
+        )
+        c.setFillColorRGB(0, 0, 0)
+        c.setStrokeColorRGB(*ACCENT)
+        c.setLineWidth(1)
+        c.line(margin, H - band_h - 6, W - margin, H - band_h - 6)
+        c.setStrokeColorRGB(0, 0, 0)
+        return H - band_h - 20
 
-    y=start_page()
+    y = start_page()
 
-    def _s(v): return "—" if v is None or (isinstance(v,float) and pd.isna(v)) else str(v)
+    def _s(v):
+        return "—" if v is None or (isinstance(v, float) and pd.isna(v)) else str(v)
 
-    c.setFont("Helvetica-Bold",12); c.drawString(margin,y,"Métricas"); y-=16
-    c.setFont("Helvetica",11)
-    for line in (f"• Taxa Metano: {_s(taxa)}", f"• Incerteza: {_s(inc)}", f"• Velocidade do Vento: {_s(vento)}", f"• Satélite: {_s(satellite)}"):
-        c.drawString(margin,y,line); y-=14
-    y-=10; c.setStrokeColorRGB(*ACCENT); c.setLineWidth(0.7); c.line(margin,y,W-margin,y); y-=14; c.setStrokeColorRGB(0,0,0)
+    c.setFont("Helvetica-Bold", 12)
+    c.drawString(margin, y, "Métricas")
+    y -= 16
+    c.setFont("Helvetica", 11)
+    for line in (
+        f"• Taxa Metano: {_s(taxa)}",
+        f"• Incerteza: {_s(inc)}",
+        f"• Velocidade do Vento: {_s(vento)}",
+        f"• Satélite: {_s(satellite)}",
+    ):
+        c.drawString(margin, y, line)
+        y -= 14
 
+    y -= 10
+    c.setStrokeColorRGB(*ACCENT)
+    c.setLineWidth(0.7)
+    c.line(margin, y, W - margin, y)
+    y -= 14
+    c.setStrokeColorRGB(0, 0, 0)
+
+    # Imagem principal
     if img_url:
-        main_img,iw,ih=_image_reader_from_url(img_url)
+        main_img, iw, ih = _image_reader_from_url(img_url)
         if main_img:
-            max_w,max_h=W-2*margin,190; s=min(max_w/iw,max_h/ih); w,h=iw*s,ih*s
-            if y-h<margin+30: c.showPage(); y=start_page()
-            c.drawImage(main_img,margin,y-h,width=w,height=h,mask='auto'); y-=h+18
+            max_w, max_h = W - 2 * margin, 190
+            s = min(max_w / iw, max_h / ih)
+            w, h = iw * s, ih * s
+            if y - h < margin + 30:
+                c.showPage()
+                y = start_page()
+            c.drawImage(main_img, margin, y - h, width=w, height=h, mask='auto')
+            y -= h + 18
 
+    # Gráfico
     if fig1 is not None:
         try:
-            try:
-                from kaleido.scopes.plotly import PlotlyScope
-                scope=PlotlyScope(plotlyjs=None, mathjax=False)
-                png1=scope.transform(fig1.to_plotly_json(), format="png", width=1400, height=800, scale=2)
-            except Exception:
-               from kaleido.scopes.plotly import PlotlyScope
-scope = PlotlyScope(plotlyjs=None, mathjax=False)
-
-png1 = scope.transform(
-    fig1.to_plotly_json(),
-    format="png",
-    width=1400,
-    height=800,
-    scale=2
-)
-
-
-            img1=ImageReader(io.BytesIO(png1)); iw,ih=img1.getSize()
-            max_w,max_h=W-2*margin,260; s=min(max_w/iw,max_h/ih); w,h=iw*s,ih*s
-            if y-h<margin+30: c.showPage(); y=start_page()
-            c.drawImage(img1,margin,y-h,width=w,height=h,mask='auto'); y-=h+16
+            png1 = _export_fig_to_png_bytes(fig1)
+            if png1 is None:
+                raise RuntimeError("Exportação PNG indisponível (Kaleido/Chrome ausente)")
+            img1 = ImageReader(io.BytesIO(png1))
+            iw, ih = img1.getSize()
+            max_w, max_h = W - 2 * margin, 260
+            s = min(max_w / iw, max_h / ih)
+            w, h = iw * s, ih * s
+            if y - h < margin + 30:
+                c.showPage()
+                y = start_page()
+            c.drawImage(img1, margin, y - h, width=w, height=h, mask='auto')
+            y -= h + 16
         except Exception as e:
-            c.setFont("Helvetica",9); c.drawString(margin,y,f"[Falha ao exportar gráfico: {e}]"); y-=14
+            c.setFont("Helvetica", 9)
+            c.drawString(margin, y, f"[Falha ao exportar gráfico: {e}]")
+            y -= 14
 
-    c.setFont("Helvetica",8); c.setFillColorRGB(*GRAY); c.drawRightString(W-margin,12,f"pág {page_no}"); c.setFillColorRGB(0,0,0)
-    c.showPage(); c.save(); buf.seek(0); return buf.getvalue()
+    c.setFont("Helvetica", 8)
+    c.setFillColorRGB(*GRAY)
+    c.drawRightString(W - margin, 12, f"pág {page_no}")
+    c.setFillColorRGB(0, 0, 0)
+
+    c.showPage()
+    c.save()
+    buf.seek(0)
+    return buf.getvalue()
 
 # ===================== Exportar PDF (UI) =====================
 
 def _get_from_dfi(dfi: pd.DataFrame, selected_col: str, name: str, *aliases):
     import unicodedata, re
-    def _norm_txt(s)->str:
-        if s is None or (isinstance(s,float) and pd.isna(s)): return ""
-        s=unicodedata.normalize("NFKD",str(s)); s="".join(ch for ch in s if not unicodedata.category(ch).startswith("M"))
-        return re.sub(r"\s+"," ",s).strip().lower()
 
-    idx_norm={_norm_txt(ix): ix for ix in dfi.index}
-    keys=[_norm_txt(name)] + [_norm_txt(a) for a in aliases]
+    def _norm_txt(s) -> str:
+        if s is None or (isinstance(s, float) and pd.isna(s)):
+            return ""
+        s = unicodedata.normalize("NFKD", str(s))
+        s = "".join(ch for ch in s if not unicodedata.category(ch).startswith("M"))
+        return re.sub(r"\s+", " ", s).strip().lower()
+
+    idx_norm = {_norm_txt(ix): ix for ix in dfi.index}
+    keys = [_norm_txt(name)] + [_norm_txt(a) for a in aliases]
     for k in keys:
-        if k and k in idx_norm: return dfi.loc[idx_norm[k], selected_col]
-    for nk,orig in idx_norm.items():
-        if any(nk.startswith(k) for k in keys if k): return dfi.loc[orig, selected_col]
+        if k and k in idx_norm:
+            return dfi.loc[idx_norm[k], selected_col]
+    for nk, orig in idx_norm.items():
+        if any(nk.startswith(k) for k in keys if k):
+            return dfi.loc[orig, selected_col]
     return None
 
 with right:
@@ -452,6 +555,7 @@ with right:
     inc       = _get_from_dfi(dfi, selected_col, "Incerteza")
     vento     = _get_from_dfi(dfi, selected_col, "Velocidade do Vento")
     satellite = _get_from_dfi(dfi, selected_col, "Satelite", "Satélite", "Satellite", "Sat")
+
 img_url   = resolve_image_target(rec.get("Imagem"))
 
 st.markdown("---")
@@ -460,14 +564,20 @@ st.caption("Relatório com faixa superior, logo, métricas, imagem e o gráfico 
 
 if st.button("Gerar PDF (dados + gráfico)", type="primary", use_container_width=True):
     pdf_bytes = build_report_pdf(
-        site=site, date=selected_label, taxa=taxa, inc=inc, vento=vento,
-        img_url=img_url, fig1=fig_line,
-        logo_rel_path=LOGO_REL_PATH, satellite=satellite
+        site=site,
+        date=selected_label,
+        taxa=taxa,
+        inc=inc,
+        vento=vento,
+        img_url=img_url,
+        fig1=fig_line,
+        logo_rel_path=LOGO_REL_PATH,
+        satellite=satellite,
     )
     st.download_button(
         label="⬇️ Baixar PDF",
         data=pdf_bytes,
         file_name=f"relatorio_geoportal_{site}_{selected_label}.pdf".replace(" ", "_"),
         mime="application/pdf",
-        use_container_width=True
+        use_container_width=True,
     )
