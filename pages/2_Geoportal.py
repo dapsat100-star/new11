@@ -45,15 +45,26 @@ import matplotlib.pyplot as plt
 # ----------------- Página -----------------
 st.set_page_config(page_title="Geoportal — Metano", layout="wide", initial_sidebar_state="expanded")
 
-# === CSS para UI ===
+# === CSS para UI (remove menu multipágina padrão) ===
 st.markdown(
     """
 <style>
+/* Esconde o cabeçalho nativo */
 header[data-testid="stHeader"] { display: none !important; }
+
+/* Mantém a sidebar visível (seu conteúdo customizado) */
 section[data-testid="stSidebar"], aside[data-testid="stSidebar"] {
   display: block !important; transform: none !important; visibility: visible !important;
 }
 div[data-testid="collapsedControl"]{ display:block !important; }
+
+/* === REMOVE o menu multipágina padrão da sidebar === */
+div[data-testid="stSidebarNav"] { display: none !important; }
+/* Fallbacks para variações de versão */
+section[data-testid="stSidebar"] nav { display: none !important; }
+section[data-testid="stSidebar"] [role="navigation"] { display: none !important; }
+
+/* Logo no topo-direito */
 #top-right-logo { position: fixed; top: 16px; right: 16px; z-index: 1000; }
 </style>
 """,
@@ -71,7 +82,7 @@ if logo_ui_path.exists():
 
 st.title("📷 Geoportal de Metano — gráfico único")
 
-# ---- Link único na sidebar ----
+# ---- Link único na sidebar (opcional) ----
 with st.sidebar:
     st.page_link("pages/2_Geoportal.py", label="GEOPORTAL", icon="🗺️")
 
