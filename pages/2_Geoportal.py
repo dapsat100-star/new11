@@ -68,7 +68,7 @@ section[data-testid="stSidebar"] [role="navigation"] { display: none !important;
 
 /* Aproxima o conteúdo do topo (título sobe) */
 main.block-container {
-    padding-top: 0.5rem !important;  /* ajuste fino aqui (ex.: 0.25rem) */
+    padding-top: 0.25rem !important;  /* ajuste fino aqui (ex.: 0.25rem) */
 }
 </style>
 """,
