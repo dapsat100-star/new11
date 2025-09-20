@@ -45,27 +45,31 @@ import matplotlib.pyplot as plt
 # ----------------- Página -----------------
 st.set_page_config(page_title="Geoportal — Metano", layout="wide", initial_sidebar_state="expanded")
 
-# === CSS para UI (remove menu multipágina padrão) ===
+# === CSS para UI (remove menu multipágina e reduz padding do topo) ===
 st.markdown(
     """
 <style>
 /* Esconde o cabeçalho nativo */
 header[data-testid="stHeader"] { display: none !important; }
 
-/* Mantém a sidebar visível (seu conteúdo customizado) */
+/* Mantém a sidebar visível (conteúdo customizado) */
 section[data-testid="stSidebar"], aside[data-testid="stSidebar"] {
   display: block !important; transform: none !important; visibility: visible !important;
 }
 div[data-testid="collapsedControl"]{ display:block !important; }
 
-/* === REMOVE o menu multipágina padrão da sidebar === */
+/* REMOVE o menu multipágina padrão da sidebar */
 div[data-testid="stSidebarNav"] { display: none !important; }
-/* Fallbacks para variações de versão */
 section[data-testid="stSidebar"] nav { display: none !important; }
 section[data-testid="stSidebar"] [role="navigation"] { display: none !important; }
 
-/* Logo no topo-direito */
-#top-right-logo { position: fixed; top: 16px; right: 16px; z-index: 1000; }
+/* Logo fixo no topo-direito */
+#top-right-logo { position: fixed; top: 12px; right: 16px; z-index: 1000; }
+
+/* Aproxima o conteúdo do topo (título sobe) */
+main.block-container {
+    padding-top: 0.5rem !important;  /* ajuste fino aqui (ex.: 0.25rem) */
+}
 </style>
 """,
     unsafe_allow_html=True,
@@ -81,10 +85,6 @@ if logo_ui_path.exists():
     )
 
 st.title("📷 Geoportal de Metano — gráfico único")
-
-# ---- Link único na sidebar (opcional) ----
-with st.sidebar:
-    st.page_link("pages/2_Geoportal.py", label="GEOPORTAL", icon="🗺️")
 
 # ---- Guard de sessão ----
 auth_ok   = st.session_state.get("authentication_status", None)
@@ -521,7 +521,6 @@ def build_report_pdf(
             if y - h < margin + 30:
                 c.showPage(); y = start_page()
             c.drawImage(main_img, margin, y - h, width=w, height=h, mask='auto')
-            # legenda da Figura 1
             c.setFont("Helvetica-Oblique", 9)
             c.drawString(margin, y - h - 12, "Figura 1 - Concentração de Metano em ppb")
             y -= h + 26
@@ -539,7 +538,6 @@ def build_report_pdf(
             if y - h < margin + 30:
                 c.showPage(); y = start_page()
             c.drawImage(img1, margin, y - h, width=w, height=h, mask='auto')
-            # legenda da Figura 2
             c.setFont("Helvetica-Oblique", 9)
             c.drawString(margin, y - h - 12, "Figura 2 - Série Histórica de Concentração de Metano")
             y -= h + 26
