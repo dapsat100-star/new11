@@ -81,6 +81,11 @@ input::placeholder, textarea::placeholder { color:#444444 !important; opacity:1 
   border:1px solid #111; background:#fff; color:#111!important;
 }
 .cta-row{ display:flex; gap:12px; margin-top:8px; }
+
+/* Footer */
+.footer{
+  margin-top:40px; padding:16px 0; border-top:1px solid #eee; font-size:12px; color:#444!important;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -179,9 +184,10 @@ with left:
       <li>{t['bul3']}</li>
     </ul>
     """, unsafe_allow_html=True)
+    # ✅ Botões (Login + Saiba mais → dapsat.com)
     st.markdown(
         f"<div class='cta-row'><a class='btn-primary' href='#login'>{t['cta_login']}</a>"
-        f"<a class='btn-ghost' href='mailto:support@dapsistemas.com'>{t['cta_about']}</a></div>",
+        f"<a class='btn-ghost' href='https://dapsat.com/' target='_blank' rel='noopener noreferrer'>{t['cta_about']}</a></div>",
         unsafe_allow_html=True
     )
     st.markdown("</div>", unsafe_allow_html=True)
