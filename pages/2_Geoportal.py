@@ -312,13 +312,13 @@ with left:
                     index=0,
                     help="Escolha a base: imagem de satélite real (Esri) ou mapa OSM."
                 )
-                # Cria o mapa sem base inicial
+                # Mapa sem base inicial
                 m = folium.Map(
                     location=[float(rec["_lat"]), float(rec["_long"])],
                     zoom_start=13,
                     tiles=None
                 )
-                # Adiciona camadas base com 'show' controlado pela escolha
+                # Camadas base
                 folium.TileLayer(
                     tiles=ESRI_SAT_URL,
                     attr=ESRI_ATTR,
@@ -335,9 +335,15 @@ with left:
                     show=(base_choice.startswith("OpenStreetMap"))
                 ).add_to(m)
 
-                # Marcador do site
-                folium.Marker(
+                # 🔴 CircleMarker (SVG: não depende de imagens externas)
+                folium.CircleMarker(
                     [float(rec["_lat"]), float(rec["_long"])],
+                    radius=8,
+                    color="#FFFFFF",       # borda branca
+                    weight=2,
+                    fill=True,
+                    fill_color="#E74C3C",  # vermelho
+                    fill_opacity=0.9,
                     tooltip=site
                 ).add_to(m)
 
@@ -654,3 +660,4 @@ if st.button("Gerar PDF (dados + gráfico)", type="primary", use_container_width
         mime="application/pdf",
         use_container_width=True
     )
+
