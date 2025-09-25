@@ -19,7 +19,7 @@ import streamlit_authenticator as stauth
 
 # ===================== CONFIG =====================
 DEFAULT_BASE_URL = "https://raw.githubusercontent.com/dapsat100-star/geoportal/main"
-LOGO_REL_PATH    = "images/logomavipe.jpeg"   # usado no PDF
+LOGO_REL_PATH    = "images/logomavipe.jpeg"  # usado no PDF
 # ==================================================
 
 # Mapa (opcional)
@@ -68,7 +68,7 @@ section[data-testid="stSidebar"] [role="navigation"] { display: none !important;
 
 /* Aproxima o conteúdo do topo (título sobe) */
 main.block-container {
-    padding-top: 0.0rem !important;  /* ajuste fino aqui (ex.: 0.25rem) */
+    padding-top: 0.0rem !important;
 }
 </style>
 """,
@@ -153,32 +153,68 @@ def normalize_cols(df: pd.DataFrame) -> pd.DataFrame:
     df.columns = normed
     return df
 
+# >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+# NOVO helper para rótulos PT-BR
+def _fmt_pt_month(dt: pd.Timestamp) -> str:
+    """Formata mês/ano em PT-BR: 'Outubro de 2025'."""
+    meses = [
+        "janeiro","fevereiro","março","abril","maio","junho",
+        "julho","agosto","setembro","outubro","novembro","dezembro"
+    ]
+    return f"{meses[dt.month-1].capitalize()} de {dt.year}"
+
+# SUBSTITUI a função original: agora rotula '01/10/25' como 'Outubro de 2025'
 def extract_dates_from_first_row(df: pd.DataFrame) -> Tuple[List[str], Dict[str, str], List[pd.Timestamp]]:
+    """
+    Localiza as colunas de data a partir de 'Data' (ou heurística),
+    extrai um Timestamp por coluna e cria um rótulo amigável em PT-BR ('Outubro de 2025').
+    Suporta células como '01/10/25' na primeira linha ou datas no cabeçalho.
+    """
     cols = list(df.columns)
     try:
         data_idx = cols.index("Data")
     except ValueError:
         data_idx = 3 if len(cols) > 3 else 0
+
     date_cols = cols[data_idx:]
-    labels, stamps = {}, []
+    labels: Dict[str, str] = {}
+    stamps: List[pd.Timestamp] = []
+
     for c in date_cols:
         v = df.loc[0, c] if 0 in df.index else None
-        label, ts = None, pd.NaT
-        if pd.notna(v):
+        ts = pd.NaT
+
+        # 1) Tenta parsear a célula da primeira linha (ex.: '01/10/25')
+        if pd.notna(v) and str(v).strip() != "":
+            parsed = pd.NaT
             for dayfirst in (True, False):
                 try:
-                    dt = pd.to_datetime(v, dayfirst=dayfirst, errors="raise")
-                    label = dt.strftime("%Y-%m-%d"); ts = pd.to_datetime(label); break
+                    parsed = pd.to_datetime(v, dayfirst=dayfirst, errors="raise")
+                    break
                 except Exception:
-                    pass
-        if not label:
+                    continue
+            if pd.notna(parsed):
+                ts = pd.Timestamp(year=parsed.year, month=parsed.month, day=1)
+
+        # 2) Se falhar, tenta o próprio nome da coluna (ex.: '2025-10')
+        if pd.isna(ts):
             try:
-                dt = pd.to_datetime(str(c), dayfirst=True, errors="raise")
-                label = dt.strftime("%Y-%m"); ts = pd.to_datetime(label + "-01", errors="coerce")
+                parsed = pd.to_datetime(str(c), errors="raise", dayfirst=True)
+                ts = pd.Timestamp(year=parsed.year, month=parsed.month, day=1)
             except Exception:
-                label = str(c); ts = pd.NaT
-        labels[c] = label; stamps.append(ts)
+                ts = pd.NaT
+
+        # 3) Define rótulo
+        if pd.notna(ts):
+            label = _fmt_pt_month(ts)
+        else:
+            label = str(c)
+
+        labels[c] = label
+        stamps.append(ts)
+
     return date_cols, labels, stamps
+# <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
 
 def build_record_for_month(df: pd.DataFrame, date_col: str) -> Dict[str, Optional[str]]:
     dfi = df.copy()
