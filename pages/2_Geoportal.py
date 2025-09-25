@@ -354,11 +354,21 @@ with right:
 
     st.markdown("---")
     st.caption("Tabela completa (parâmetro → valor):")
+
+    # ---------- TABELA (sem 'Parametro' e sem 'Imagem') ----------
     table_df = dfi[[selected_col]].copy()
     table_df.columns = ["Valor"]
-    if "Imagem" in table_df.index:
-        table_df = table_df.drop(index="Imagem")
+
+    # Remove linhas indesejadas (case-insensitive)
+    drop_keys = {"parametro", "imagem"}
+    to_drop = [ix for ix in table_df.index if str(ix).strip().lower() in drop_keys]
+    table_df = table_df.drop(index=to_drop, errors="ignore")
+
+    # Formatação amigável
     table_df = table_df.applymap(lambda v: "" if (pd.isna(v)) else str(v))
+
+    # Observação: linhas como "Data de Aquisição" e "Hora de Aquisição – UTC"
+    # permanecem e serão exibidas normalmente.
     st.dataframe(table_df, use_container_width=True)
 
 # ======== Gráfico único: linha (spline) + barras de incerteza ========
@@ -616,3 +626,4 @@ if st.button("Gerar PDF (dados + gráfico)", type="primary", use_container_width
         mime="application/pdf",
         use_container_width=True
     )
+
