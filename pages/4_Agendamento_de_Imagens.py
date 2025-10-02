@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
 # pages/4_Agendamento_de_Imagens.py
-# 🔸 Agendamento de Imagens (validação) com:
-# - Sidebar sempre fixa/visível (sem botão de recolher)
-# - Auto-load do último snapshot no GitHub (sem UI de upload)
-# - Edição com SIM/NÃO, ações em lote, calendário e exportação
-# - Snapshot no GitHub (data/validado/YYYY/MM/validado-*.xlsx)
+# 🔸 Validação de imagens com UX estilo SaaS:
+# - App bar (título + meta + ações)
+# - Cards, badges de status, barra de aviso de alterações
+# - Auto-load do último snapshot no GitHub
+# - Edição com seletor único de status, ações em lote, calendário e exportação
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ import json
 import base64
 import datetime as dt
 from pathlib import Path
-from typing import Optional, List, Dict
+from typing import Optional, List
 
 import numpy as np
 import pandas as pd
@@ -29,8 +29,63 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+# ======= ESTILO GLOBAL (UX tipo SaaS) =======================================
+st.markdown("""
+<style>
+/* container central mais largo */
+.reportview-container .main .block-container {max-width: 1320px; padding-top: .5rem; padding-bottom: 4rem;}
+.block-container {padding-top: .6rem !important;}
+
+/* App bar sticky */
+.appbar {position: sticky; top: 0; z-index: 50; background: #ffffffcc;
+  backdrop-filter: blur(8px); border-bottom: 1px solid #eef0f3; margin-bottom: 8px;}
+.appbar-inner {display:flex; align-items:center; justify-content:space-between; padding:10px 0;}
+.appbar h1 {font-size: 1.6rem; margin:0;}
+.appbar .meta {color:#6b7280; font-size: .9rem;}
+.appbar .actions {display:flex; gap:8px;}
+
+/* Cards */
+.card {background:#fff; border:1px solid #eef0f3; border-radius: 16px;
+  box-shadow: 0 1px 2px rgba(16,24,40,.04); padding:16px; margin: 12px 0;}
+.card h3 {margin: 0 0 8px 0; font-size: 1.1rem}
+
+/* Botões */
+.btn-primary {background:#1f6feb; border:1px solid #1f6feb; color:#fff;
+  border-radius:10px; padding:8px 14px; font-weight:600;}
+.btn-ghost {background:#fff; border:1px solid #e5e7eb; color:#111827;
+  border-radius:10px; padding:8px 14px; font-weight:600;}
+
+/* Badges (usadas fora da tabela) */
+.badge {display:inline-flex; align-items:center; padding:2px 8px;
+  border-radius:999px; font-size:12px; font-weight:600; vertical-align:middle;}
+.badge-pendente {background:#fff7ed; color:#b45309; border:1px solid #fed7aa;}
+.badge-aprovado {background:#ecfdf5; color:#166534; border:1px solid #bbf7d0;}
+.badge-rejeitado {background:#fef2f2; color:#991b1b; border:1px solid #fecaca;}
+
+/* Tabela – cabeçalho sticky */
+[data-testid="stTable"] thead tr {position: sticky; top: 48px; background: #fff; z-index: 5; box-shadow: 0 1px 0 #eef0f3;}
+
+/* Sidebar sempre aberta e sem nav padrão */
+header[data-testid="stHeader"]{ display:none !important; }
+div[data-testid="collapsedControl"]{ display:none !important; }
+aside[data-testid="stSidebar"], section[data-testid="stSidebar"]{
+  display:block !important; visibility:visible !important; transform: translateX(0) !important;
+  min-width:300px !important; width:300px !important;}
+div[data-testid="stSidebarNav"], section[data-testid="stSidebar"] nav,
+section[data-testid="stSidebar"] [role="navigation"]{ display:none !important; }
+
+/* Logo fixo (opcional) */
+.mavipe-logo-fixed {position: fixed; top: 12px; right: 20px; z-index: 9999; pointer-events:none;}
+.mavipe-logo-fixed img {height: 100px; width: auto; opacity: .98;}
+@media (max-width: 900px){ .mavipe-logo-fixed{display:none;} }
+
+/* Barra de aviso de alterações */
+.unsaved {background:#fff; border:1px solid #e5e7eb; border-radius: 14px; padding:10px 14px;
+  box-shadow: 0 8px 24px rgba(16,24,40,.12); display:flex; gap:10px; align-items:center;}
+</style>
+""", unsafe_allow_html=True)
+
 # ======= LOGO FIXO SUPERIOR DIREITO =========================================
-# Usa o arquivo existente na raiz do repositório: logomavipe.jpeg
 def _logo_b64_from(path: str) -> str | None:
     p = Path(path)
     if not p.exists():
@@ -42,60 +97,12 @@ def _logo_b64_from(path: str) -> str | None:
 
 _LOGO_FILE = "logomavipe.jpeg"
 _LOGO_B64 = _logo_b64_from(_LOGO_FILE)
-
 if _LOGO_B64:
-    st.markdown(
-        f"""
-        <style>
-        .mavipe-logo-fixed {{
-            position: fixed;
-            top: 12px;
-            right: 20px;
-            z-index: 9999;
-            pointer-events: none; /* não bloqueia cliques abaixo */
-        }}
-        .mavipe-logo-fixed img {{
-            height: 100px;   /* ajuste de tamanho do logo */
-            width: auto;
-            opacity: 0.98;
-        }}
-        @media (max-width: 900px) {{
-            .mavipe-logo-fixed {{ display: none; }}
-        }}
-        </style>
-        <div class="mavipe-logo-fixed">
-            <img src="data:image/jpeg;base64,{_LOGO_B64}" alt="MAVIPE Space Systems">
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-else:
-    st.caption("⚠️ Logo 'logomavipe.jpeg' não encontrado na raiz do repositório.")
-
-# Sidebar SEMPRE aberta + sem botão de recolher
-st.markdown("""
-<style>
-header[data-testid="stHeader"]{ display:none !important; }
-div[data-testid="collapsedControl"]{ display:none !important; }
-
-aside[data-testid="stSidebar"],
-section[data-testid="stSidebar"]{
-  display:block !important;
-  visibility:visible !important;
-  transform: translateX(0) !important;
-  min-width:300px !important; width:300px !important;
-}
-
-div[data-testid="stSidebarNav"],
-section[data-testid="stSidebar"] nav,
-section[data-testid="stSidebar"] [role="navigation"]{
-  display:none !important;
-}
-
-aside[data-testid="stSidebar"]{ position: sticky !important; top: 0 !important; }
-.block-container{ padding-top:.6rem !important; }
-</style>
-""", unsafe_allow_html=True)
+    st.markdown(f"""
+    <div class="mavipe-logo-fixed">
+        <img src="data:image/jpeg;base64,{_LOGO_B64}" alt="MAVIPE Space Systems">
+    </div>
+    """, unsafe_allow_html=True)
 
 # ======= AUTH (opcional: botão Sair na sidebar) ==============================
 def _try_authenticator():
@@ -196,7 +203,7 @@ def load_latest_snapshot_df() -> Optional[pd.DataFrame]:
         st.warning(f"Não consegui carregar o último snapshot do GitHub: {e}")
         return None
 
-# ======= ESTADO / AUTO-LOAD ==================================================
+# ======= AUTO-LOAD ===========================================================
 if "df_validado" not in st.session_state:
     with st.spinner("Carregando último arquivo salvo no GitHub..."):
         st.session_state.df_validado = load_latest_snapshot_df()
@@ -208,7 +215,7 @@ if st.session_state.df_validado is None or st.session_state.df_validado.empty:
 
 dfv = st.session_state.df_validado
 
-# ======= SIDEBAR (links, logout, filtros) ===================================
+# ======= SIDEBAR =============================================================
 with st.sidebar:
     st.header("👤 Sessão")
     auth = _try_authenticator()
@@ -239,64 +246,105 @@ with st.sidebar:
     autor_atual = st.text_input("Seu nome (autor do commit)", value=st.session_state.get("usuario_logado","")).strip()
     st.session_state["usuario_logado"] = autor_atual or "—"
 
-# ======= UI HELPERS ==========================================================
+# ======= HELPERS =============================================================
 PT_MESES = ["janeiro","fevereiro","março","abril","maio","junho","julho","agosto","setembro","outubro","novembro","dezembro"]
 def mes_label_pt(yyyymm: str) -> str:
-    y, m = yyyymm.split("-")
-    return f"{PT_MESES[int(m)-1].capitalize()} de {y}"
-
+    y, m = yyyymm.split("-"); return f"{PT_MESES[int(m)-1].capitalize()} de {y}"
 label_mes = mes_label_pt(mes_ano)
 
-# ======= TÍTULO / META =======================================================
-st.title("🛰️ Calendário de Validação")
+def badge_html(status: str) -> str:
+    s = (status or "").lower()
+    if "aprova" in s:
+        return '<span class="badge badge-aprovado">Aprovada</span>'
+    if "rejei" in s:
+        return '<span class="badge badge-rejeitado">Rejeitada</span>'
+    return '<span class="badge badge-pendente">Pendente</span>'
+
+# ======= APP BAR =============================================================
+meta_html = ""
 if st.session_state.ultimo_meta:
     meta = st.session_state.ultimo_meta
-    st.caption(f"**Último autor:** {meta.get('author','—')}  •  **Salvo (UTC):** {meta.get('saved_at_utc','')}  •  `{meta.get('path','')}`")
+    meta_html = f'Último autor: {meta.get("author","—")} · Salvo (UTC): {meta.get("saved_at_utc","")} · <code>{meta.get("path","")}</code>'
 
-# ======= TABELA EDITÁVEL =====================================================
+appbar_col = st.container()
+with appbar_col:
+    st.markdown(f"""
+    <div class="appbar"><div class="appbar-inner">
+      <div><h1>Calendário de Validação</h1>
+        <div class="meta">{meta_html}</div></div>
+      <div class="actions">
+        <!-- Botões reais vêm logo abaixo em columns para funcionar no Streamlit -->
+      </div>
+    </div></div>
+    """, unsafe_allow_html=True)
+    # linha de botões "reais" alinhados à direita
+    c1, c2, c3 = st.columns([6,1,1])
+    with c2: refresh_clicked = st.button("Atualizar", use_container_width=True)
+    with c3: save_clicked_top = st.button("💾 Salvar alterações", type="primary", use_container_width=True)
+    if refresh_clicked:
+        st.session_state.df_validado = load_latest_snapshot_df()
+        st.session_state.ultimo_meta = load_latest_meta()
+        st.experimental_rerun()
+
+# ======= DADOS FILTRADOS =====================================================
 mask = dfv["site_nome"].isin(sel_sites) & (dfv["yyyymm"] == mes_ano)
 fdf = dfv.loc[mask].copy().sort_values(["data","site_nome"])
 
-st.subheader(f"📋 Tabela de passagens — {label_mes}")
+# ======= CARD: Tabela de passagens ==========================================
+st.markdown(f'<div class="card"><h3>📋 Tabela de passagens — {label_mes}</h3>', unsafe_allow_html=True)
 
+# visão editável
 view = fdf[["site_nome","data","status","observacao","validador","data_validacao"]].copy()
 view["data"] = pd.to_datetime(view["data"]).dt.strftime("%Y-%m-%d")
-view["sim"] = (view["status"] == "Aprovada")
-view["nao"] = (view["status"] == "Rejeitada")
+view["status"] = view["status"].replace({"Aprovado":"Aprovada"})  # normaliza se vier diferente
 view["observacao"] = view["observacao"].astype("string")
 view["validador"] = view["validador"].astype("string")
 view["data_validacao"] = view["data_validacao"].apply(
     lambda x: "" if pd.isna(x) else pd.to_datetime(x).strftime("%Y-%m-%d %H:%M:%S")
 ).astype("string")
 
+# coluna de badges (somente leitura) para look comercial fora do select
+view["status_badge"] = view["status"].map(lambda s: badge_html(str(s)))
+
 edited = st.data_editor(
     view,
     num_rows="fixed",
     width='stretch',
     column_config={
-        "sim": st.column_config.CheckboxColumn(label="Confirmar (sim)", help="Marca como Aprovada"),
-        "nao": st.column_config.CheckboxColumn(label="Rejeitar (não)", help="Marca como Rejeitada"),
-        "status": st.column_config.TextColumn(disabled=True),
-        "data": st.column_config.TextColumn(disabled=True),
-        "site_nome": st.column_config.TextColumn(disabled=True),
-        "data_validacao": st.column_config.TextColumn(disabled=True),
-        "observacao": st.column_config.TextColumn(width="medium"),
-        "validador": st.column_config.TextColumn(width="small"),
+        "site_nome": st.column_config.TextColumn("Site", disabled=True, width="medium"),
+        "data": st.column_config.TextColumn("Data", disabled=True, width="small"),
+        "status_badge": st.column_config.MarkdownColumn("Status", help="Estado atual", width="small"),
+        "status": st.column_config.SelectboxColumn(
+            "Alterar status",
+            options=["Pendente","Aprovada","Rejeitada"],
+            required=True,
+            width="small"
+        ),
+        "observacao": st.column_config.TextColumn("Observação", width="medium"),
+        "validador": st.column_config.TextColumn("Validador", width="small"),
+        "data_validacao": st.column_config.TextColumn("Data validação", disabled=True, width="medium"),
     },
-    disabled=["status","data","site_nome","data_validacao"],
-    key="editor_agnd_v1",
+    disabled=["site_nome","data","status_badge","data_validacao"],
+    key="editor_agnd_v2",
 )
+st.markdown("</div>", unsafe_allow_html=True)
 
-if "temp_edits" not in st.session_state or not edited.equals(st.session_state["temp_edits"]):
-    st.session_state["temp_edits"] = edited.copy()
+# ======= DETECÇÃO DE ALTERAÇÕES / AVISO =====================================
+def _unsaved_count(orig: pd.DataFrame, ed: pd.DataFrame) -> int:
+    # compara colunas editáveis
+    a = orig[["site_nome","data","status","observacao","validador"]].copy()
+    b = ed[["site_nome","data","status","observacao","validador"]].copy()
+    return int((a.values != b.values).any(axis=1).sum())
 
-col_save1, col_save2 = st.columns([1,6])
-with col_save1:
-    save_clicked = st.button("💾 Salvar alterações", type="primary")
-with col_save2:
-    if st.session_state.get("temp_edits") is not None:
-        st.caption("Há edições não salvas. Clique em **Salvar alterações** para aplicar e publicar.")
+unsaved = _unsaved_count(view, edited)
+if unsaved > 0:
+    st.markdown(f"""
+    <div class="unsaved">
+      <strong>{unsaved}</strong> alteração(ões) não salvas.
+    </div>
+    """, unsafe_allow_html=True)
 
+# ======= SALVAR ==============================================================
 def _exportar_excel_bytes(df: pd.DataFrame) -> bytes:
     cols = ["site_nome","data","status","observacao","validador","data_validacao"]
     cols = [c for c in cols if c in df.columns]
@@ -311,32 +359,29 @@ def _exportar_excel_bytes(df: pd.DataFrame) -> bytes:
         out.to_excel(writer, index=False, sheet_name="validacao")
     buf.seek(0); return buf.read()
 
-if save_clicked:
+def _aplicar_salvamento(edited_df: pd.DataFrame):
     base = st.session_state.df_validado.copy()
-    e = st.session_state.temp_edits.copy()
+    e = edited_df.copy()
     e["data"] = pd.to_datetime(e["data"]).dt.date
 
-    def decide(row):
-        if bool(row.get("nao", False)): return "Rejeitada"
-        if bool(row.get("sim", False)): return "Aprovada"
-        return "Pendente"
-
-    e["status_novo"] = e.apply(decide, axis=1)
+    # aplica status/observacao/validador
     keys = ["site_nome","data"]
-    upd_cols = ["status_novo","observacao","validador"]
+    upd_cols = ["status","observacao","validador"]
 
     merged = base.drop(columns=["observacao","validador"], errors="ignore") \
-                 .merge(e[keys + upd_cols], on=keys, how="left")
-    mask_new = ~merged["status_novo"].isna()
-    merged.loc[mask_new, "status"] = merged.loc[mask_new, "status_novo"]
-    merged = merged.drop(columns=["status_novo"])
+                 .merge(e[keys + upd_cols], on=keys, how="left", suffixes=("","_novo"))
 
+    for c in ["status","observacao","validador"]:
+        mask_upd = ~merged[f"{c}_novo"].isna()
+        merged.loc[mask_upd, c] = merged.loc[mask_upd, f"{c}_novo"]
+        merged = merged.drop(columns=[f"{c}_novo"])
+
+    # marca data_validacao quando vira Aprovada/Rejeitada e ainda está vazia
     mudou = merged["status"].isin(["Aprovada","Rejeitada"]) & merged["data_validacao"].isna()
     ts_now = dt.datetime.now(dt.timezone.utc).replace(tzinfo=None)
     merged.loc[mudou, "data_validacao"] = ts_now
 
     st.session_state.df_validado = merged
-    st.session_state.temp_edits = None
     st.success("Alterações salvas localmente.")
 
     try:
@@ -347,7 +392,54 @@ if save_clicked:
     except Exception as e:
         st.warning(f"Salvou localmente, mas falhou ao publicar no GitHub: {e}")
 
-# ======= AÇÕES EM LOTE + CALENDÁRIO =========================================
+# botão principal (app bar) ou secundário (abaixo da tabela)
+save_clicked_bottom = st.button("💾 Salvar alterações", type="primary")
+if save_clicked_top or save_clicked_bottom:
+    _aplicar_salvamento(edited)
+
+# ======= CARD: Ações em lote + calendário ===================================
+st.markdown(f'<div class="card"><h3>⚙️ Ações em lote por dia — {label_mes}</h3>', unsafe_allow_html=True)
+
+dias_disponiveis = sorted(pd.to_datetime(fdf["data"]).dt.date.unique())
+if dias_disponiveis:
+    d_sel = st.selectbox("Dia", options=dias_disponiveis, format_func=lambda d: d.strftime("%Y-%m-%d"))
+    cA, cB, _ = st.columns([1,1,6])
+    with cA:
+        if st.button("✅ Aprovar tudo do dia"):
+            base = st.session_state.df_validado
+            idx = (pd.to_datetime(base["data"]).dt.date == d_sel) & base["site_nome"].isin(sel_sites) & (base["yyyymm"] == mes_ano)
+            base.loc[idx, "status"] = "Aprovada"
+            ts_now = dt.datetime.now(dt.timezone.utc).replace(tzinfo=None)
+            base.loc[idx & base["data_validacao"].isna(), "data_validacao"] = ts_now
+            st.session_state.df_validado = base
+            st.success(f"Aprovado tudo em {d_sel}.")
+            try:
+                xlsb = _exportar_excel_bytes(st.session_state.df_validado)
+                meta = gh_save_snapshot(xlsb, author=st.session_state.get("usuario_logado",""))
+                st.session_state.ultimo_meta = meta
+                st.info(f"Publicado no GitHub: `{meta['path']}`")
+            except Exception as e:
+                st.warning(f"Falhou ao publicar no GitHub: {e}")
+    with cB:
+        if st.button("⛔ Rejeitar tudo do dia"):
+            base = st.session_state.df_validado
+            idx = (pd.to_datetime(base["data"]).dt.date == d_sel) & base["site_nome"].isin(sel_sites) & (base["yyyymm"] == mes_ano)
+            base.loc[idx, "status"] = "Rejeitada"
+            ts_now = dt.datetime.now(dt.timezone.utc).replace(tzinfo=None)
+            base.loc[idx & base["data_validacao"].isna(), "data_validacao"] = ts_now
+            st.session_state.df_validado = base
+            st.success(f"Rejeitado tudo em {d_sel}.")
+            try:
+                xlsb = _exportar_excel_bytes(st.session_state.df_validado)
+                meta = gh_save_snapshot(xlsb, author=st.session_state.get("usuario_logado",""))
+                st.session_state.ultimo_meta = meta
+                st.info(f"Publicado no GitHub: `{meta['path']}`")
+            except Exception as e:
+                st.warning(f"Falhou ao publicar no GitHub: {e}")
+else:
+    st.caption("Sem passagens no mês/site(s) filtrados.")
+
+# Calendário
 def montar_calendario(df_mes: pd.DataFrame, mes_ano: str,
                       only_color_with_events: bool = True,
                       show_badges: bool = True) -> go.Figure:
@@ -423,53 +515,14 @@ def montar_calendario(df_mes: pd.DataFrame, mes_ano: str,
                       paper_bgcolor="white", plot_bgcolor="white")
     return fig
 
-st.markdown(f"### ⚙️ Ações em lote por dia — {label_mes}")
-dias_disponiveis = sorted(pd.to_datetime(fdf["data"]).dt.date.unique())
-if dias_disponiveis:
-    d_sel = st.selectbox("Dia", options=dias_disponiveis, format_func=lambda d: d.strftime("%Y-%m-%d"))
-    cA, cB, _ = st.columns([1,1,6])
-    with cA:
-        if st.button("✅ Aprovar tudo do dia"):
-            base = st.session_state.df_validado
-            idx = (pd.to_datetime(base["data"]).dt.date == d_sel) & base["site_nome"].isin(sel_sites) & (base["yyyymm"] == mes_ano)
-            base.loc[idx, "status"] = "Aprovada"
-            ts_now = dt.datetime.now(dt.timezone.utc).replace(tzinfo=None)
-            base.loc[idx & base["data_validacao"].isna(), "data_validacao"] = ts_now
-            st.session_state.df_validado = base
-            st.success(f"Aprovado tudo em {d_sel}.")
-            try:
-                xlsb = _exportar_excel_bytes(st.session_state.df_validado)
-                meta = gh_save_snapshot(xlsb, author=st.session_state.get("usuario_logado",""))
-                st.session_state.ultimo_meta = meta
-                st.info(f"Publicado no GitHub: `{meta['path']}`")
-            except Exception as e:
-                st.warning(f"Falhou ao publicar no GitHub: {e}")
-    with cB:
-        if st.button("⛔ Rejeitar tudo do dia"):
-            base = st.session_state.df_validado
-            idx = (pd.to_datetime(base["data"]).dt.date == d_sel) & base["site_nome"].isin(sel_sites) & (base["yyyymm"] == mes_ano)
-            base.loc[idx, "status"] = "Rejeitada"
-            ts_now = dt.datetime.now(dt.timezone.utc).replace(tzinfo=None)
-            base.loc[idx & base["data_validacao"].isna(), "data_validacao"] = ts_now
-            st.session_state.df_validado = base
-            st.success(f"Rejeitado tudo em {d_sel}.")
-            try:
-                xlsb = _exportar_excel_bytes(st.session_state.df_validado)
-                meta = gh_save_snapshot(xlsb, author=st.session_state.get("usuario_logado",""))
-                st.session_state.ultimo_meta = meta
-                st.info(f"Publicado no GitHub: `{meta['path']}`")
-            except Exception as e:
-                st.warning(f"Falhou ao publicar no GitHub: {e}")
-else:
-    st.caption("Sem passagens no mês/site(s) filtrados.")
-
 st.subheader(f"Calendário do mês selecionado — {label_mes}")
 fig = montar_calendario(fdf, mes_ano, only_color_with_events=True, show_badges=True)
 st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
 
-# ======= EXPORTAR / DIAGNÓSTICO =============================================
-st.markdown("---")
-st.subheader("Exportar arquivo validado")
+st.markdown("</div>", unsafe_allow_html=True)  # fecha card
+
+# ======= CARD: Exportar / Diagnóstico =======================================
+st.markdown('<div class="card"><h3>⬇️ Exportar arquivo validado</h3>', unsafe_allow_html=True)
 colA, colB = st.columns([1,2])
 with colA:
     nome_arquivo = st.text_input("Nome do arquivo", value="passagens_validado.xlsx")
@@ -477,6 +530,7 @@ with colB:
     xlsb = _exportar_excel_bytes(st.session_state.df_validado)
     st.download_button("Baixar Excel validado", data=xlsb, file_name=nome_arquivo,
                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+st.markdown("</div>", unsafe_allow_html=True)
 
 with st.expander("🔧 Diagnóstico GitHub", expanded=False):
     has_token  = "github_token"  in st.secrets
