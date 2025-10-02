@@ -9,13 +9,13 @@
 
 import io, os, base64, json, datetime as dt
 from typing import Dict, List, Optional
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 import requests
 import streamlit as st
-from pathlib import Path
 
 # ==== Auth (logout + guard) ====
 import yaml
@@ -62,10 +62,7 @@ def _build_authenticator():
         with open("auth_config.yaml", "r", encoding="utf-8") as f:
             cfg = yaml.load(f, Loader=SafeLoader)
         return stauth.Authenticate(
-            cfg["credentials"],
-            cfg["cookie"]["name"],
-            cfg["cookie"]["key"],
-            cfg["cookie"]["expiry_days"],
+            cfg["credentials"], cfg["cookie"]["name"], cfg["cookie"]["key"], cfg["cookie"]["expiry_days"]
         )
     except Exception:
         return None
@@ -79,7 +76,7 @@ with st.sidebar:
         except Exception:
             _auth.logout("Sair", "sidebar")
     st.markdown("---")
-    # Atalhos
+    # Atalhos para módulos
     def _first_existing(*cands):
         for p in cands:
             if Path(p).exists():
@@ -121,9 +118,6 @@ def _gh_headers():
     if not token:
         raise RuntimeError("Faltando token do GitHub (agenda_token/GITHUB_TOKEN).")
     return {"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"}
-
-def _have_github_conf():
-    return bool(_gh_repo() and _gh_branch())
 
 # ===== Helpers GitHub (listar e baixar) =====
 def _list_contents(path: str):
@@ -297,7 +291,7 @@ def exportar_excel_full(df: pd.DataFrame) -> bytes:
 
 # ===== Carregamento automático (sem uploader) =====
 st.title("🛰️ Calendário de Validação (GitHub)")
-st.caption("Planilha carregada automaticamente do repositório de dados. Marque **sim/nao**, clique **Salvar** para gerar um snapshot no GitHub.")
+st.caption("Planilha carregada automaticamente do repositório de dados. Marque **sim/nao** e clique **Salvar** para gerar um snapshot no GitHub.")
 
 # Estado
 if "df_validado" not in st.session_state:
@@ -311,7 +305,7 @@ def _load_from_repo() -> Optional[pd.DataFrame]:
         if src:  # caminho fixo
             content = fetch_file_bytes(src)
             df_raw = pd.read_excel(io.BytesIO(content))
-            # se já estiver no formato "validacao", só padroniza
+            # já no formato final?
             cols_low = {c.lower() for c in df_raw.columns}
             if {"site_nome","data"}.issubset(cols_low):
                 df = df_raw.copy()
@@ -355,7 +349,10 @@ with colI:
 with colR:
     if st.button("↻ Recarregar"):
         st.session_state.df_validado = None
-        st.experimental_rerun()
+        try:
+            st.rerun()
+        except Exception:
+            st.experimental_rerun()
 
 # ===== Filtros =====
 with st.sidebar:
@@ -364,7 +361,7 @@ with st.sidebar:
     sites = sorted(dfv["site_nome"].unique())
     site_sel = st.multiselect("Sites", options=sites, default=sites)
     meses = sorted(dfv["yyyymm"].unique())
-    mes_ano = st.selectbox("Mês", options=meses, index=max(0, len(meses)-1))
+    mes_ano = st.selectbox("Mês", options=meses, index=max(0, len(meses)-1), key="mes_ano")
     st.checkbox("Colorir só dias com passagem", value=True, key="only_color_with_events")
     st.checkbox("Mostrar bolinhas/contagem", value=True, key="show_badges")
     st.text_input("Seu nome (autor do commit)", key="usuario_logado", placeholder="ex.: Márcio")
@@ -372,7 +369,7 @@ with st.sidebar:
 autor_atual = st.session_state.get("usuario_logado", "").strip() or "—"
 st.caption(f"👤 Autor atual para commits: **{autor_atual}**")
 
-mask = st.session_state.df_validado["site_nome"].isin(site_sel) & (st.session_state.df_validado["yyyymm"] == mes_ano)
+mask = st.session_state.df_validado["site_nome"].isin(site_sel) & (st.session_state.df_validado["yyyymm"] == st.session_state.get("mes_ano", mes_ano))
 fdf = (st.session_state.df_validado.loc[mask]
        .copy().sort_values(["data", "site_nome"])
        if not st.session_state.df_validado.empty else st.session_state.df_validado.copy())
@@ -448,7 +445,7 @@ if save_clicked:
     except Exception as e:
         st.warning(f"Salvou localmente, mas falhou ao publicar no GitHub: {e}")
     # recalc
-    mask = st.session_state.df_validado["site_nome"].isin(site_sel) & (st.session_state.df_validado["yyyymm"] == mes_ano)
+    mask = st.session_state.df_validado["site_nome"].isin(site_sel) & (st.session_state.df_validado["yyyymm"] == st.session_state.get("mes_ano", mes_ano))
     fdf = (st.session_state.df_validado.loc[mask]
            .copy().sort_values(["data", "site_nome"])
            if not st.session_state.df_validado.empty else st.session_state.df_validado.copy())
@@ -462,7 +459,7 @@ if dias_disponiveis:
     with cA:
         if st.button("✅ Aprovar tudo do dia"):
             base = st.session_state.df_validado
-            idx = (pd.to_datetime(base["data"]).dt.date == d_sel) & base["site_nome"].isin(site_sel) & (base["yyyymm"] == mes_ano)
+            idx = (pd.to_datetime(base["data"]).dt.date == d_sel) & base["site_nome"].isin(site_sel) & (base["yyyymm"] == st.session_state.get("mes_ano", mes_ano))
             base.loc[idx, "status"] = "Aprovada"
             base.loc[idx & base["data_validacao"].isna(), "data_validacao"] = pd.Timestamp.now(tz="UTC").tz_convert(None)
             st.session_state.df_validado = base
@@ -477,7 +474,7 @@ if dias_disponiveis:
     with cB:
         if st.button("⛔ Rejeitar tudo do dia"):
             base = st.session_state.df_validado
-            idx = (pd.to_datetime(base["data"]).dt.date == d_sel) & base["site_nome"].isin(site_sel) & (base["yyyymm"] == mes_ano)
+            idx = (pd.to_datetime(base["data"]).dt.date == d_sel) & base["site_nome"].isin(site_sel) & (base["yyyymm"] == st.session_state.get("mes_ano", mes_ano))
             base.loc[idx, "status"] = "Rejeitada"
             base.loc[idx & base["data_validacao"].isna(), "data_validacao"] = pd.Timestamp.now(tz="UTC").tz_convert(None)
             st.session_state.df_validado = base
@@ -556,10 +553,10 @@ def montar_calendario(df_mes: pd.DataFrame, mes_ano: str,
     return fig
 
 st.subheader("Calendário do mês selecionado")
-mes_ano = st.sidebar.session_state.get("mes_ano", None) or st.session_state.df_validado["yyyymm"].max()
+mes_ano_cur = st.session_state.get("mes_ano") or st.session_state.df_validado["yyyymm"].max()
 fig = montar_calendario(
-    st.session_state.df_validado[st.session_state.df_validado["yyyymm"] == mes_ano],
-    mes_ano,
+    st.session_state.df_validado[st.session_state.df_validado["yyyymm"] == mes_ano_cur],
+    mes_ano_cur,
     only_color_with_events=st.session_state.get("only_color_with_events", True),
     show_badges=st.session_state.get("show_badges", True),
 )
