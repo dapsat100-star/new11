@@ -120,6 +120,28 @@ with st.sidebar:
             _auth.logout("Sair", "sidebar")
     st.markdown("---")
 
+    # --- Atalhos para módulos (links fixos) ---
+    st.markdown("### 🔗 Módulos")
+
+    # Resolve caminhos tanto para estrutura na raiz quanto em /pages
+    def _first_existing(*cands):
+        from pathlib import Path
+        for p in cands:
+            if Path(p).exists():
+                return p
+        # se nenhum existir, retorna o primeiro (para evitar exceção; Streamlit ignora se não existir)
+        return cands[0]
+
+    AGENDA_PAGE    = _first_existing("pages/4_Agendamento_de_Imagens.py", "4_Agendamento_de_Imagens.py")
+    RELATORIO_PAGE = _first_existing("pages/3_Relatorio_OGMP_2_0.py", "3_Relatorio_OGMP_2_0.py")
+    ESTATS_PAGE    = _first_existing("pages/1_Estatisticas_Gerais.py", "1_Estatisticas_Gerais.py")
+
+    st.page_link(AGENDA_PAGE,    label="AGENDAMENTO DE IMAGENS", icon="🗓️")
+    st.page_link(RELATORIO_PAGE, label="RELATÓRIO OGMP 2.0",     icon="📄")
+    st.page_link(ESTATS_PAGE,    label="ESTATÍSTICAS",           icon="📊")
+
+    st.markdown("---")
+
     st.header("📁 Carregar o Excel")
     uploaded = st.file_uploader("Upload do Excel (.xlsx)", type=["xlsx"])
 
@@ -660,4 +682,5 @@ if st.button("Gerar PDF (dados + gráfico)", type="primary", use_container_width
         mime="application/pdf",
         use_container_width=True
     )
+
 
