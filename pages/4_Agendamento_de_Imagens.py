@@ -1,7 +1,9 @@
 # -*- coding: utf-8 -*-
 # pages/4_Agendamento_de_Imagens.py
-# UX estilo SaaS + Sidebar fixa + compat Streamlit + ações em lote + calendário
-# + GitHub com token e fallback por latest.json (evita 403 rate limit)
+# UX estilo SaaS + Sidebar fixa + contornos visíveis nos filtros
+# Compat Streamlit (st.rerun / experimental), ações em lote, calendário
+# GitHub com token + fallback via latest.json + cache simples
+# Correção de merge/salvamento (evita KeyError) e uso de openpyxl
 
 from __future__ import annotations
 
@@ -29,7 +31,7 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# --- Sidebar sempre fixa/visível (sem colapsar) + CSS SaaS ---
+# --- Sidebar fixa/visível + UI estilo SaaS + chips com contorno visível ---
 st.markdown("""
 <style>
 /* Remove o botão de colapso (hamburger) */
@@ -92,6 +94,53 @@ div[data-testid="stSidebarNav"] { display: none !important; }
 
 /* Esconde header padrão do Streamlit */
 header[data-testid="stHeader"]{ display:none !important; }
+
+/* ===== Sidebar: inputs/chips com contornos visíveis ===== */
+section[data-testid="stSidebar"] {
+  --sb-border: #d1d5db;         /* cinza da borda */
+  --sb-border-strong: #9ca3af;  /* hover */
+  --sb-bg: #fafafa;             /* fundo do campo */
+  --sb-bg-focus: #ffffff;       /* foco */
+  --sb-focus-ring: rgba(31,111,235,.18); /* anel de foco azul */
+}
+/* Caixa do Select/MultiSelect */
+section[data-testid="stSidebar"] div[data-baseweb="select"] > div {
+  border: 1.5px solid var(--sb-border) !important;
+  background: var(--sb-bg) !important;
+  border-radius: 10px !important;
+  transition: border-color .15s ease, box-shadow .15s ease, background .15s ease;
+}
+section[data-testid="stSidebar"] div[data-baseweb="select"] > div:hover {
+  border-color: var(--sb-border-strong) !important;
+}
+section[data-testid="stSidebar"] div[data-baseweb="select"] > div:focus-within {
+  border-color: #1f6feb !important;
+  background: var(--sb-bg-focus) !important;
+  box-shadow: 0 0 0 3px var(--sb-focus-ring) !important;
+}
+/* Chips (tags) do MultiSelect */
+section[data-testid="stSidebar"] div[data-baseweb="tag"] {
+  background: #ffffff !important;
+  color: #111827 !important;
+  border: 1.2px solid var(--sb-border) !important;
+  box-shadow: 0 1px 0 rgba(0,0,0,.04) !important;
+  border-radius: 10px !important;
+}
+section[data-testid="stSidebar"] div[data-baseweb="tag"]:hover {
+  border-color: var(--sb-border-strong) !important;
+}
+/* Ícone de fechar do chip */
+section[data-testid="stSidebar"] div[data-baseweb="tag"] svg {
+  fill: #6b7280 !important;
+}
+section[data-testid="stSidebar"] div[data-baseweb="tag"]:hover svg {
+  fill: #374151 !important;
+}
+/* Títulos da sidebar */
+section[data-testid="stSidebar"] h2, 
+section[data-testid="stSidebar"] h3 {
+  color: #111827 !important;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -142,7 +191,6 @@ def _list_contents(path: str):
     """Lista itens usando a API com token (evita 403)."""
     url = f"https://api.github.com/repos/{_gh_repo()}/contents/{path}?ref={_gh_branch()}"
     r = requests.get(url, headers=_gh_headers(), timeout=20)
-    # mensagem mais clara para rate limit
     if r.status_code == 403 and "rate limit" in r.text.lower():
         raise RuntimeError("GitHub rate limit exceeded ao listar conteúdos")
     r.raise_for_status()
@@ -197,7 +245,7 @@ def load_latest_meta() -> Optional[dict]:
     except Exception:
         return None
 
-# cache simples (em memória) pra reduzir chamadas à API
+# cache simples em memória pra reduzir chamadas à API
 def _cached_list_all_xlsx(path: str, ttl: int = 300) -> List[str]:
     key = "_cache_list_all_xlsx"
     now = time.time()
@@ -354,7 +402,7 @@ view["validador"] = view["validador"].astype("string")
 view["data_validacao"] = view["data_validacao"].apply(
     lambda x: "" if pd.isna(x) else pd.to_datetime(x).strftime("%Y-%m-%d %H:%M:%S")
 ).astype("string")
-view["status_badge"] = view["status"].map(SUPPORT_MD and badge_html or badge_plain)
+view["status_badge"] = view["status"].map(badge_html if SUPPORT_MD else badge_plain)
 
 colcfg = {
     "site_nome": st.column_config.TextColumn("Site", disabled=True, width="medium"),
@@ -407,7 +455,7 @@ def _exportar_excel_bytes(df: pd.DataFrame) -> bytes:
     dv = pd.to_datetime(out["data_validacao"], errors="coerce")
     out["data_validacao"] = dv.dt.strftime("%Y-%m-%d %H:%M:%S").fillna("")
     buf = io.BytesIO()
-    with pd.ExcelWriter(buf, engine="openpyxl") as writer:   # usa openpyxl (evita erro xlsxwriter)
+    with pd.ExcelWriter(buf, engine="openpyxl") as writer:
         out.to_excel(writer, index=False, sheet_name="validacao")
     buf.seek(0); return buf.read()
 
@@ -557,7 +605,7 @@ def montar_calendario(df_mes: pd.DataFrame, mes_ano: str,
                                          marker=dict(size=1, color="rgba(0,0,0,0)"),
                                          hovertemplate=hover, showlegend=False))
     fig.update_xaxes(visible=False); fig.update_yaxes(visible=False)
-    fig.update_layout(height=460, margin=dict(l=10, r=10, t=10, b=10),
+    fig.update_layout(height=460, margin=dict(l=10, r=10, t=10),
                       paper_bgcolor="white", plot_bgcolor="white")
     return fig
 
@@ -594,3 +642,4 @@ with st.expander("🔧 Diagnóstico GitHub", expanded=False):
         st.session_state.df_validado = load_latest_snapshot_df()
         st.session_state.ultimo_meta = load_latest_meta()
         _rerun()
+
