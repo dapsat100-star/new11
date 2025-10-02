@@ -12,6 +12,7 @@ import io
 import json
 import base64
 import datetime as dt
+from pathlib import Path
 from typing import Optional, List, Dict
 
 import numpy as np
@@ -27,6 +28,49 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded",
 )
+
+# ======= LOGO FIXO SUPERIOR DIREITO =========================================
+# Usa o arquivo existente na raiz do repositório: logomavipe.jpeg
+def _logo_b64_from(path: str) -> str | None:
+    p = Path(path)
+    if not p.exists():
+        return None
+    try:
+        return base64.b64encode(p.read_bytes()).decode("utf-8")
+    except Exception:
+        return None
+
+_LOGO_FILE = "logomavipe.jpeg"
+_LOGO_B64 = _logo_b64_from(_LOGO_FILE)
+
+if _LOGO_B64:
+    st.markdown(
+        f"""
+        <style>
+        .mavipe-logo-fixed {{
+            position: fixed;
+            top: 12px;
+            right: 20px;
+            z-index: 9999;
+            pointer-events: none; /* não bloqueia cliques abaixo */
+        }}
+        .mavipe-logo-fixed img {{
+            height: 60px;   /* ajuste de tamanho do logo */
+            width: auto;
+            opacity: 0.98;
+        }}
+        @media (max-width: 900px) {{
+            .mavipe-logo-fixed {{ display: none; }}
+        }}
+        </style>
+        <div class="mavipe-logo-fixed">
+            <img src="data:image/jpeg;base64,{_LOGO_B64}" alt="MAVIPE Space Systems">
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+else:
+    st.caption("⚠️ Logo 'logomavipe.jpeg' não encontrado na raiz do repositório.")
 
 # Sidebar SEMPRE aberta + sem botão de recolher
 st.markdown("""
@@ -448,3 +492,4 @@ with st.expander("🔧 Diagnóstico GitHub", expanded=False):
         st.session_state.df_validado = load_latest_snapshot_df()
         st.session_state.ultimo_meta = load_latest_meta()
         st.experimental_rerun()
+
