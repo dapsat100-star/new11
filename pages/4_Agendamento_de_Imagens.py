@@ -7,7 +7,7 @@
 # - Salva snapshots em cronograma/data/validado/YYYY/MM/validado-*.xlsx
 # - Sidebar sempre fixa, com Logout e links para os módulos.
 
-import io, os, base64, json, datetime as dt
+import os, io, json, base64, datetime as dt
 from typing import Dict, List, Optional
 from pathlib import Path
 
@@ -267,6 +267,13 @@ def normalizar_planilha_matriz(df_raw: pd.DataFrame, col_site: Optional[str] = N
     df_expl["yyyymm"] = pd.to_datetime(df_expl["data"]).dt.strftime("%Y-%m")
     return df_expl.sort_values(["data", "site_nome"]).reset_index(drop=True)
 
+# ===== Helper para rótulo "Mês de Ano" =====
+def rotulo_mes_ano_pt(yyyymm: str) -> str:
+    meses = ["janeiro","fevereiro","março","abril","maio","junho",
+             "julho","agosto","setembro","outubro","novembro","dezembro"]
+    a, m = yyyymm.split("-")
+    return f"{meses[int(m)-1].capitalize()} de {a}"
+
 # ===== Escrita Excel (openpyxl) =====
 def write_excel_bytes(df: pd.DataFrame) -> bytes:
     buf = io.BytesIO()
@@ -445,7 +452,7 @@ if save_clicked:
     except Exception as e:
         st.warning(f"Salvou localmente, mas falhou ao publicar no GitHub: {e}")
     # recalc
-    mask = st.session_state.df_validado["site_nome"].isin(site_sel) & (st.session_state.df_validado["yyyymm"] == st.session_state.get("mes_ano", mes_ano))
+    mask = st.session_state.df_validado["site_nome"].isin(site_sel) & (st.session_state.df_validado["yyyymm"] == st.session_state.get("mes_ao", mes_ano))
     fdf = (st.session_state.df_validado.loc[mask]
            .copy().sort_values(["data", "site_nome"])
            if not st.session_state.df_validado.empty else st.session_state.df_validado.copy())
@@ -552,15 +559,17 @@ def montar_calendario(df_mes: pd.DataFrame, mes_ano: str,
     fig.update_layout(height=460, margin=dict(l=10, r=10, t=10, b=10), paper_bgcolor="white", plot_bgcolor="white")
     return fig
 
-st.subheader("Calendário do mês selecionado")
+# ——— Cabeçalho com mês PT-BR
 mes_ano_cur = st.session_state.get("mes_ano") or st.session_state.df_validado["yyyymm"].max()
+st.subheader(f"Calendário — {rotulo_mes_ano_pt(mes_ano_cur)}")
+
 fig = montar_calendario(
     st.session_state.df_validado[st.session_state.df_validado["yyyymm"] == mes_ano_cur],
     mes_ano_cur,
     only_color_with_events=st.session_state.get("only_color_with_events", True),
     show_badges=st.session_state.get("show_badges", True),
 )
-st.plotly_chart(fig, width='stretch', config={"displayModeBar": False})
+st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
 
 # ===== Exportar =====
 st.markdown("---"); st.subheader("Exportar")
@@ -599,3 +608,4 @@ with st.expander("🔧 Diagnóstico GitHub", expanded=False):
                 st.error("❌ Não consegui gravar. Veja o JSON acima (repo/branch/token).")
         except Exception as e:
             st.exception(e)
+
