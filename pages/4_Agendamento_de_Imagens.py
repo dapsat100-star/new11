@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 # pages/4_Agendamento_de_Imagens.py
-# Versão completa com UX estilo SaaS + compatibilidade ampla do Streamlit
+# UX estilo SaaS + Sidebar fixa (sem colapsar) + compatibilidade ampla do Streamlit
 
 from __future__ import annotations
 
@@ -27,12 +27,34 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# ============================================================================
-# CSS (estilo SaaS)
-# ============================================================================
+# --- Sidebar sempre fixa/visível (sem colapsar) ---
 st.markdown("""
 <style>
-.reportview-container .main .block-container {max-width: 1320px; padding-top:.5rem; padding-bottom:4rem;}
+/* Remove o botão de colapso (hamburger) */
+div[data-testid="collapsedControl"] { display: none !important; }
+
+/* Força a sidebar aberta, fixa e com altura total */
+section[data-testid="stSidebar"], aside[data-testid="stSidebar"] {
+  visibility: visible !important;
+  transform: translateX(0) !important;
+  opacity: 1 !important;
+  pointer-events: auto !important;
+  width: 300px !important;
+  min-width: 300px !important;
+  background: #ffffff !important;
+  border-right: 1px solid #eef0f3 !important;
+  position: sticky !important;
+  top: 0 !important;
+  height: 100vh !important;
+  overflow: auto !important;
+  z-index: 100;
+}
+
+/* Esconde a navegação automática da sidebar (se usa page_link manual) */
+div[data-testid="stSidebarNav"] { display: none !important; }
+
+/* Ajustes do conteúdo principal */
+.reportview-container .main .block-container {max-width: 1320px; padding-top: .6rem; padding-bottom: 4rem;}
 /* App bar */
 .appbar {position: sticky; top: 0; z-index: 50; background:#ffffffcc; backdrop-filter: blur(8px);
   border-bottom:1px solid #eef0f3; margin-bottom:8px;}
@@ -59,9 +81,8 @@ st.markdown("""
 /* Barra de aviso */
 .unsaved {background:#fff; border:1px solid #e5e7eb; border-radius:14px; padding:10px 14px;
   box-shadow:0 8px 24px rgba(16,24,40,.12); display:flex; gap:10px; align-items:center;}
-/* Esconder header padrão + botão recolher */
+/* Esconde header padrão do Streamlit */
 header[data-testid="stHeader"]{ display:none !important; }
-div[data-testid="collapsedControl"]{ display:none !important; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -207,7 +228,7 @@ def badge_plain(status: str) -> str:
     return "Pendente ⌛"
 
 # ============================================================================
-# SIDEBAR
+# SIDEBAR (conteúdo)
 # ============================================================================
 with st.sidebar:
     st.header("📚 Módulos")
@@ -238,13 +259,13 @@ if st.session_state.ultimo_meta:
     meta = st.session_state.ultimo_meta
     meta_html = f'Último autor: {meta.get("author","—")} · Salvo (UTC): {meta.get("saved_at_utc","")} · <code>{meta.get("path","")}</code>'
 
-# desenha app bar + botões reais logo abaixo
 st.markdown(f"""
 <div class="appbar"><div class="appbar-inner">
   <div><h1>Calendário de Validação</h1><div class="meta">{meta_html}</div></div>
   <div class="actions"></div>
 </div></div>
 """, unsafe_allow_html=True)
+
 c1, c2, c3 = st.columns([6,1,1])
 with c2:
     if st.button("Atualizar", use_container_width=True):
@@ -255,7 +276,7 @@ with c3:
     save_clicked_top = st.button("💾 Salvar alterações", type="primary", use_container_width=True)
 
 # ============================================================================
-# DADOS FILTRADOS + LABEL
+# DADOS FILTRADOS
 # ============================================================================
 mask = dfv["site_nome"].isin(sel_sites) & (dfv["yyyymm"] == mes_ano)
 fdf = dfv.loc[mask].copy().sort_values(["data","site_nome"])
@@ -273,11 +294,8 @@ view["validador"] = view["validador"].astype("string")
 view["data_validacao"] = view["data_validacao"].apply(
     lambda x: "" if pd.isna(x) else pd.to_datetime(x).strftime("%Y-%m-%d %H:%M:%S")
 ).astype("string")
-
-# coluna visual de status
 view["status_badge"] = view["status"].map(badge_html if SUPPORT_MD else badge_plain)
 
-# column_config dinâmico
 colcfg = {
     "site_nome": st.column_config.TextColumn("Site", disabled=True, width="medium"),
     "data": st.column_config.TextColumn("Data", disabled=True, width="small"),
