@@ -1,15 +1,17 @@
 # -*- coding: utf-8 -*-
 # pages/4_Agendamento_de_Imagens.py
 # UX estilo SaaS + Sidebar fixa + compat Streamlit + ações em lote + calendário
+# + GitHub com token e fallback por latest.json (evita 403 rate limit)
 
 from __future__ import annotations
 
 import io
 import json
+import time
 import base64
 import datetime as dt
 from pathlib import Path
-from typing import Optional, List
+from typing import Optional, List, Dict
 
 import numpy as np
 import pandas as pd
@@ -123,21 +125,28 @@ if _LOGO_B64:
     """, unsafe_allow_html=True)
 
 # ============================================================================
-# GITHUB – utilitários
+# GITHUB – utilitários (com token + fallback e cache simples)
 # ============================================================================
-def _gh_headers():
-    return {
-        "Authorization": f"Bearer {st.secrets['github_token']}",
-        "Accept": "application/vnd.github+json",
-    }
+def _gh_headers() -> Dict[str, str]:
+    headers = {"Accept": "application/vnd.github+json"}
+    token = st.secrets.get("github_token")
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    return headers
 
 def _gh_repo():   return st.secrets["github_repo"]
 def _gh_branch(): return st.secrets.get("github_branch", "main")
 def _gh_root():   return st.secrets.get("gh_data_root", "data/validado")
 
 def _list_contents(path: str):
+    """Lista itens usando a API com token (evita 403)."""
     url = f"https://api.github.com/repos/{_gh_repo()}/contents/{path}?ref={_gh_branch()}"
-    r = requests.get(url, timeout=20); r.raise_for_status(); return r.json()
+    r = requests.get(url, headers=_gh_headers(), timeout=20)
+    # mensagem mais clara para rate limit
+    if r.status_code == 403 and "rate limit" in r.text.lower():
+        raise RuntimeError("GitHub rate limit exceeded ao listar conteúdos")
+    r.raise_for_status()
+    return r.json()
 
 def _list_all_xlsx(path: str) -> List[str]:
     files: List[str] = []
@@ -179,6 +188,7 @@ def gh_save_snapshot(xls_bytes: bytes, author: Optional[str] = None) -> dict:
     return latest
 
 def load_latest_meta() -> Optional[dict]:
+    """Lê latest.json via raw (não usa API, menor chance de 403)."""
     try:
         root = _gh_root().rstrip("/")
         url = f"https://raw.githubusercontent.com/{_gh_repo()}/{_gh_branch()}/{root}/latest.json"
@@ -187,10 +197,44 @@ def load_latest_meta() -> Optional[dict]:
     except Exception:
         return None
 
+# cache simples (em memória) pra reduzir chamadas à API
+def _cached_list_all_xlsx(path: str, ttl: int = 300) -> List[str]:
+    key = "_cache_list_all_xlsx"
+    now = time.time()
+    cache = st.session_state.get(key, {})
+    entry = cache.get(path)
+    if entry and (now - entry["ts"] < ttl):
+        return entry["data"]
+    data = _list_all_xlsx(path)
+    cache[path] = {"ts": now, "data": data}
+    st.session_state[key] = cache
+    return data
+
 def load_latest_snapshot_df() -> Optional[pd.DataFrame]:
+    """1) tenta via latest.json (raw); 2) fallback: lista via API com token + cache."""
+    # 1) pelo latest.json
     try:
-        all_files = _list_all_xlsx(_gh_root())
-        if not all_files: return None
+        meta = load_latest_meta()
+        if meta and meta.get("path"):
+            raw = f"https://raw.githubusercontent.com/{_gh_repo()}/{_gh_branch()}/{meta['path']}"
+            df = pd.read_excel(raw)
+            keep = ["site_nome","data","status","observacao","validador","data_validacao"]
+            df = df[[c for c in keep if c in df.columns]].copy()
+            df["data"]           = pd.to_datetime(df["data"], errors="coerce").dt.date
+            df["data_validacao"] = pd.to_datetime(df.get("data_validacao", pd.NaT), errors="coerce")
+            df["observacao"]     = df.get("observacao","").astype(str)
+            df["validador"]      = df.get("validador","").astype(str)
+            df["status"]         = df.get("status","Pendente").astype(str)
+            df["yyyymm"]         = pd.to_datetime(df["data"]).dt.strftime("%Y-%m")
+            return df.sort_values(["data","site_nome"]).reset_index(drop=True)
+    except Exception as e:
+        st.warning(f"Falhou ao baixar pelo latest.json: {e}")
+
+    # 2) fallback: lista via API (com token + cache)
+    try:
+        all_files = _cached_list_all_xlsx(_gh_root(), ttl=300)
+        if not all_files:
+            return None
         all_files.sort(reverse=True)
         latest = all_files[0]
         raw = f"https://raw.githubusercontent.com/{_gh_repo()}/{_gh_branch()}/{latest}"
@@ -205,7 +249,7 @@ def load_latest_snapshot_df() -> Optional[pd.DataFrame]:
         df["yyyymm"]         = pd.to_datetime(df["data"]).dt.strftime("%Y-%m")
         return df.sort_values(["data","site_nome"]).reset_index(drop=True)
     except Exception as e:
-        st.warning(f"Não consegui carregar o último snapshot do GitHub: {e}")
+        st.warning(f"Não consegui listar via API do GitHub: {e}")
         return None
 
 # ============================================================================
@@ -310,7 +354,7 @@ view["validador"] = view["validador"].astype("string")
 view["data_validacao"] = view["data_validacao"].apply(
     lambda x: "" if pd.isna(x) else pd.to_datetime(x).strftime("%Y-%m-%d %H:%M:%S")
 ).astype("string")
-view["status_badge"] = view["status"].map(badge_html if SUPPORT_MD else badge_plain)
+view["status_badge"] = view["status"].map(SUPPORT_MD and badge_html or badge_plain)
 
 colcfg = {
     "site_nome": st.column_config.TextColumn("Site", disabled=True, width="medium"),
@@ -363,7 +407,7 @@ def _exportar_excel_bytes(df: pd.DataFrame) -> bytes:
     dv = pd.to_datetime(out["data_validacao"], errors="coerce")
     out["data_validacao"] = dv.dt.strftime("%Y-%m-%d %H:%M:%S").fillna("")
     buf = io.BytesIO()
-    with pd.ExcelWriter(buf, engine="openpyxl") as writer:
+    with pd.ExcelWriter(buf, engine="openpyxl") as writer:   # usa openpyxl (evita erro xlsxwriter)
         out.to_excel(writer, index=False, sheet_name="validacao")
     buf.seek(0); return buf.read()
 
@@ -550,4 +594,3 @@ with st.expander("🔧 Diagnóstico GitHub", expanded=False):
         st.session_state.df_validado = load_latest_snapshot_df()
         st.session_state.ultimo_meta = load_latest_meta()
         _rerun()
-
