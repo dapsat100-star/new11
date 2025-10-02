@@ -1,20 +1,20 @@
 # -*- coding: utf-8 -*-
 # pages/4_Agendamento_de_Imagens.py
-# Integra o seu app "Calendário de Passagens – Validação" ao multipáginas:
-# - Sidebar sempre aberta (sem botão de colapsar)
-# - Logout via streamlit_authenticator
-# - Links para Geoportal / Relatório / Estatísticas
-# - Escrita de Excel usando openpyxl (sem xlsxwriter)
+# Módulo Agendamento de Imagens (cronograma)
+# - Sem UI de upload: carrega direto do GitHub
+# - Se houver secrets agenda_source_path (ou AGENDA_SOURCE_PATH), usa esse arquivo fixo.
+# - Senão, carrega o último snapshot em gh_data_root.
+# - Salva snapshots em cronograma/data/validado/YYYY/MM/validado-*.xlsx
+# - Sidebar sempre fixa, com Logout e links para os módulos.
 
-import io
+import io, os, base64, json, datetime as dt
 from typing import Dict, List, Optional
 
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
-import streamlit as st
 import requests
-import base64, json, datetime as dt
+import streamlit as st
 from pathlib import Path
 
 # ==== Auth (logout + guard) ====
@@ -27,34 +27,23 @@ st.set_page_config(
     page_title="Agendamento de Imagens",
     page_icon="🗓️",
     layout="wide",
-    initial_sidebar_state="expanded",  # ✅ sempre expandida
+    initial_sidebar_state="expanded",
 )
 
 # === CSS: sidebar sempre aberta + sem botão de colapsar ===
 st.markdown("""
 <style>
-/* Esconde cabeçalho nativo */
 header[data-testid="stHeader"]{ display:none !important; }
-
-/* Sidebar SEMPRE visível/expandida */
 section[data-testid="stSidebar"], aside[data-testid="stSidebar"]{
   display:block !important; visibility:visible !important; transform:none !important;
 }
-
-/* Nunca mostrar o botão de colapsar */
 div[data-testid="collapsedControl"]{ display:none !important; }
-
-/* Remover menu multipágina nativo (usaremos page_link) */
 div[data-testid="stSidebarNav"]{ display:none !important; }
 section[data-testid="stSidebar"] nav,
 section[data-testid="stSidebar"] [role="navigation"]{ display:none !important; }
-
-/* Largura fixa pra não encolher */
 @media (max-width:3000px){
   section[data-testid="stSidebar"]{ min-width:300px !important; width:300px !important; }
 }
-
-/* Aproximar conteúdo do topo */
 main.block-container{ padding-top:0.0rem !important; }
 </style>
 """, unsafe_allow_html=True)
@@ -90,80 +79,57 @@ with st.sidebar:
         except Exception:
             _auth.logout("Sair", "sidebar")
     st.markdown("---")
-
-    # --- Atalhos para módulos (links fixos) ---
-    st.markdown("### 🔗 Módulos")
+    # Atalhos
     def _first_existing(*cands):
         for p in cands:
             if Path(p).exists():
                 return p
         return cands[0]
-
-    GEO_PAGE     = _first_existing("pages/2_Geoportal.py", "2_Geoportal.py")
-    REL_PAGE     = _first_existing("pages/3_Relatorio_OGMP_2_0.py", "3_Relatorio_OGMP_2_0.py")
-    ESTATS_PAGE  = _first_existing("pages/1_Estatisticas_Gerais.py", "1_Estatisticas_Gerais.py")
-
-    st.page_link(GEO_PAGE,    label="GEOPORTAL",           icon="🗺️")
-    st.page_link(REL_PAGE,    label="RELATÓRIO OGMP 2.0",  icon="📄")
-    st.page_link(ESTATS_PAGE, label="ESTATÍSTICAS",        icon="📊")
-
+    st.page_link(_first_existing("pages/1_Estatisticas_Gerais.py","1_Estatisticas_Gerais.py"),
+                 label="ESTATÍSTICAS", icon="📊")
+    st.page_link(_first_existing("pages/2_Geoportal.py","2_Geoportal.py"),
+                 label="GEOPORTAL", icon="🗺️")
+    st.page_link(_first_existing("pages/3_Relatorio_OGMP_2_0.py","3_Relatorio_OGMP_2_0.py"),
+                 label="RELATÓRIO", icon="📄")
+    st.page_link(_first_existing("pages/4_Agendamento_de_Imagens.py","4_Agendamento_de_Imagens.py"),
+                 label="AGENDAMENTO DE IMAGENS", icon="🗓️")
     st.markdown("---")
 
-# ========================== APP (cronograma) ==========================
-st.title("🛰️ Calendário de Validação (checkbox sim/nao + GitHub)")
-st.caption("Marque **sim/nao**, clique **Salvar** e o app comita o Excel no GitHub. Ao abrir, carrega o último snapshot automaticamente.")
+# ========================== Config GitHub ==========================
+def _get_conf(key: str, env: str, default=None):
+    try:
+        val = st.secrets.get(key)
+    except Exception:
+        val = None
+    if val in (None, ""):
+        val = os.getenv(env, default)
+    return val
 
-# ===== GitHub: salvar snapshots =====
+# Preferência: valores com prefixo 'agenda_' (se quiser separar deste módulo)
+def _agenda(key: str, env: str, default=None):
+    v = _get_conf(f"agenda_{key}", f"AGENDA_{env}", None)
+    return v if v not in (None, "") else _get_conf(f"github_{key}", f"GITHUB_{env}", default)
+
+def _gh_token():  return _agenda("token",  "TOKEN")
+def _gh_repo():   return _agenda("repo",   "REPO")
+def _gh_branch(): return _agenda("branch", "BRANCH", "main")
+def _gh_root():   return _agenda("root",   "ROOT", "data/validado")
+def _gh_src():    return _agenda("source_path", "SOURCE_PATH")  # caminho fixo opcional, ex.: entrada/cronograma.xlsx
+
 def _gh_headers():
-    return {
-        "Authorization": f"Bearer {st.secrets['github_token']}",
-        "Accept": "application/vnd.github+json",
-    }
+    token = _gh_token()
+    if not token:
+        raise RuntimeError("Faltando token do GitHub (agenda_token/GITHUB_TOKEN).")
+    return {"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"}
 
-def gh_get_file_sha(path: str):
-    repo = st.secrets["github_repo"]
-    branch = st.secrets.get("github_branch", "main")
-    url = f"https://api.github.com/repos/{repo}/contents/{path}?ref={branch}"
-    r = requests.get(url, headers=_gh_headers(), timeout=20)
-    return r.json().get("sha") if r.status_code == 200 else None
+def _have_github_conf():
+    return bool(_gh_repo() and _gh_branch())
 
-def gh_put_file(path: str, content_bytes: bytes, message: str, sha: Optional[str] = None):
-    repo = st.secrets["github_repo"]
-    branch = st.secrets.get("github_branch", "main")
-    url = f"https://api.github.com/repos/{repo}/contents/{path}"
-    payload = {
-        "message": message,
-        "content": base64.b64encode(content_bytes).decode("utf-8"),
-        "branch": branch,
-    }
-    if sha:
-        payload["sha"] = sha
-    r = requests.put(url, headers=_gh_headers(), json=payload, timeout=30)
-    if r.status_code not in (200, 201):
-        raise RuntimeError(f"Falha ao salvar no GitHub ({r.status_code}): {r.text}")
-    return r.json()
-
-def gh_save_snapshot(xls_bytes: bytes, author: Optional[str] = None) -> dict:
-    root = st.secrets.get("gh_data_root", "data/validado")
-    now = dt.datetime.utcnow()
-    yyyy = now.strftime("%Y"); mm = now.strftime("%m"); stamp = now.strftime("%Y%m%d-%H%M%S")
-    excel_rel_path = f"{root}/{yyyy}/{mm}/validado-{stamp}.xlsx"
-    gh_put_file(excel_rel_path, xls_bytes, f"[streamlit] snapshot {stamp} (autor={author or 'anon'})", None)
-    latest = {"saved_at_utc": now.isoformat()+"Z", "author": author or "", "path": excel_rel_path}
-    latest_path = f"{root}/latest.json"
-    sha_old = gh_get_file_sha(latest_path)
-    gh_put_file(latest_path, json.dumps(latest, ensure_ascii=False, indent=2).encode("utf-8"),
-                f"[streamlit] update latest -> {excel_rel_path}", sha_old)
-    return latest
-
-# ===== AUTO-LOAD: último XLSX salvo no GitHub =====
-def _gh_repo():    return st.secrets["github_repo"]
-def _gh_branch():  return st.secrets.get("github_branch", "main")
-def _gh_root():    return st.secrets.get("gh_data_root", "data/validado")
-
+# ===== Helpers GitHub (listar e baixar) =====
 def _list_contents(path: str):
     url = f"https://api.github.com/repos/{_gh_repo()}/contents/{path}?ref={_gh_branch()}"
-    r = requests.get(url, timeout=20)
+    headers = _gh_headers() if _gh_token() else {}
+    r = requests.get(url, headers=headers, timeout=20)
     r.raise_for_status()
     return r.json()
 
@@ -177,7 +143,50 @@ def _list_all_xlsx(path: str):
             files.extend(_list_all_xlsx(it["path"]))
     return files
 
-# ===== Ler metadados do último snapshot =====
+def fetch_file_bytes(rel_path: str) -> bytes:
+    """Lê um arquivo do repo (API c/token se privado, RAW se público)."""
+    if _gh_token():
+        api = f"https://api.github.com/repos/{_gh_repo()}/contents/{rel_path}?ref={_gh_branch()}"
+        r = requests.get(api, headers=_gh_headers(), timeout=30)
+        r.raise_for_status()
+        data = r.json()
+        return base64.b64decode(data["content"])
+    else:
+        raw = f"https://raw.githubusercontent.com/{_gh_repo()}/{_gh_branch()}/{rel_path}"
+        r = requests.get(raw, timeout=30); r.raise_for_status()
+        return r.content
+
+# ===== Snapshots (salvar) =====
+def gh_get_file_sha(path: str):
+    url = f"https://api.github.com/repos/{_gh_repo()}/contents/{path}?ref={_gh_branch()}"
+    r = requests.get(url, headers=_gh_headers(), timeout=20)
+    return r.json().get("sha") if r.status_code == 200 else None
+
+def gh_put_file(path: str, content_bytes: bytes, message: str, sha: Optional[str] = None):
+    url = f"https://api.github.com/repos/{_gh_repo()}/contents/{path}"
+    payload = {"message": message,
+               "content": base64.b64encode(content_bytes).decode("utf-8"),
+               "branch": _gh_branch()}
+    if sha: payload["sha"] = sha
+    r = requests.put(url, headers=_gh_headers(), json=payload, timeout=30)
+    if r.status_code not in (200, 201):
+        raise RuntimeError(f"Falha ao salvar no GitHub ({r.status_code}): {r.text}")
+    return r.json()
+
+def gh_save_snapshot(xls_bytes: bytes, author: Optional[str] = None) -> dict:
+    root = _gh_root().rstrip("/")
+    now = dt.datetime.utcnow()
+    yyyy = now.strftime("%Y"); mm = now.strftime("%m"); stamp = now.strftime("%Y%m%d-%H%M%S")
+    excel_rel_path = f"{root}/{yyyy}/{mm}/validado-{stamp}.xlsx"
+    gh_put_file(excel_rel_path, xls_bytes, f"[streamlit] snapshot {stamp} (autor={author or 'anon'})", None)
+    latest = {"saved_at_utc": now.isoformat()+"Z", "author": author or "", "path": excel_rel_path}
+    latest_path = f"{root}/latest.json"
+    sha_old = gh_get_file_sha(latest_path)
+    gh_put_file(latest_path, json.dumps(latest, ensure_ascii=False, indent=2).encode("utf-8"),
+                f"[streamlit] update latest -> {excel_rel_path}", sha_old)
+    return latest
+
+# ===== Auto-load (último snapshot ou arquivo fixo) =====
 def load_latest_meta() -> dict | None:
     try:
         root = _gh_root().rstrip("/")
@@ -192,57 +201,30 @@ def load_latest_meta() -> dict | None:
 def load_latest_snapshot_df() -> Optional[pd.DataFrame]:
     try:
         all_files = _list_all_xlsx(_gh_root())
-        if not all_files:
-            return None
-        all_files.sort(reverse=True)  # timestamp no nome => ordem desc
+        if not all_files: return None
+        all_files.sort(reverse=True)
         latest = all_files[0]
-        raw = f"https://raw.githubusercontent.com/{_gh_repo()}/{_gh_branch()}/{latest}"
-        df = pd.read_excel(raw)
+        content = fetch_file_bytes(latest)
+        df = pd.read_excel(io.BytesIO(content))
         keep = ["site_nome","data","status","observacao","validador","data_validacao"]
         df = df[[c for c in keep if c in df.columns]].copy()
         df["data"] = pd.to_datetime(df["data"], errors="coerce").dt.date
-        if "data_validacao" in df.columns:
-            df["data_validacao"] = pd.to_datetime(df["data_validacao"], errors="coerce")
-        else:
-            df["data_validacao"] = pd.NaT
+        df["data_validacao"] = pd.to_datetime(df.get("data_validacao", pd.NaT), errors="coerce")
         df["observacao"] = df.get("observacao","").astype(str)
         df["validador"]  = df.get("validador","").astype(str)
         df["status"]     = df.get("status","Pendente").astype(str)
-        df["yyyymm"] = pd.to_datetime(df["data"]).dt.strftime("%Y-%m")
+        df["yyyymm"]     = pd.to_datetime(df["data"]).dt.strftime("%Y-%m")
         return df.sort_values(["data","site_nome"]).reset_index(drop=True)
     except Exception as e:
         st.warning(f"Não consegui carregar o último snapshot do GitHub: {e}")
         return None
 
-# ===== Meses em PT =====
+# ===== Normalização para planilha “matriz mês/ano” =====
 PT_MESES: Dict[str, int] = {
     "janeiro": 1, "fevereiro": 2, "março": 3, "marco": 3, "abril": 4, "maio": 5, "junho": 6,
     "julho": 7, "agosto": 8, "setembro": 9, "outubro": 10, "novembro": 11, "dezembro": 12,
 }
 
-# ===== Session state =====
-if "df_validado" not in st.session_state:
-    st.session_state.df_validado = None
-if "temp_edits" not in st.session_state:
-    st.session_state.temp_edits = None
-
-# Se não há planilha na sessão, tenta auto-carregar do GitHub e exibe autor
-if st.session_state.df_validado is None:
-    with st.spinner("Carregando último arquivo salvo no GitHub..."):
-        df_auto = load_latest_snapshot_df()
-        meta = load_latest_meta()
-    if df_auto is not None:
-        st.session_state.df_validado = df_auto
-        st.success("✅ Último snapshot carregado automaticamente do GitHub.")
-        if meta:
-            autor = meta.get("author", "") or "—"
-            quando = meta.get("saved_at_utc", "")
-            caminho = meta.get("path", "")
-            st.info(f"**Último autor:** {autor}  •  **Salvo (UTC):** {quando}\n\n`{caminho}`")
-            if not st.session_state.get("usuario_logado"):
-                st.session_state["usuario_logado"] = autor
-
-# ===== Utils (para upload inicial de matriz mês/ano) =====
 def detectar_colunas_mes(df: pd.DataFrame) -> List[str]:
     cols_mes = []
     for c in df.columns:
@@ -291,7 +273,7 @@ def normalizar_planilha_matriz(df_raw: pd.DataFrame, col_site: Optional[str] = N
     df_expl["yyyymm"] = pd.to_datetime(df_expl["data"]).dt.strftime("%Y-%m")
     return df_expl.sort_values(["data", "site_nome"]).reset_index(drop=True)
 
-# ========= Helper p/ escrever Excel com openpyxl (sem xlsxwriter) =========
+# ===== Escrita Excel (openpyxl) =====
 def write_excel_bytes(df: pd.DataFrame) -> bytes:
     buf = io.BytesIO()
     with pd.ExcelWriter(buf, engine="openpyxl") as writer:
@@ -299,47 +281,81 @@ def write_excel_bytes(df: pd.DataFrame) -> bytes:
     buf.seek(0)
     return buf.read()
 
-# ===== Entrada (upload / url / exemplo) =====
-with st.expander("📥 Carregar planilha", expanded=True):
-    c1, c2 = st.columns([2,1])
-    with c1: up = st.file_uploader("Envie seu Excel (.xlsx)", type=["xlsx"])
-    with c2: url_raw = st.text_input("...ou cole a URL 'raw' do GitHub", placeholder="https://raw.githubusercontent.com/usuario/repo/main/cronograma.xlsx")
-    col_site_hint = st.text_input("Nome da coluna do site (opcional)", value="") or None
-    b1, b2, b3 = st.columns(3)
-    with b1:
-        if st.button("Carregar do upload"):
-            if not up: st.warning("Envie um arquivo .xlsx.")
-            else:
-                try:
-                    df_raw = pd.read_excel(up)
-                    df_raw.columns = [str(c).strip().replace("\xa0", " ") for c in df_raw.columns]
-                    st.session_state.df_validado = normalizar_planilha_matriz(df_raw, col_site_hint); st.session_state.temp_edits = None
-                    st.success("Planilha carregada!")
-                except Exception as e: st.error(f"Erro: {e}")
-    with b2:
-        if st.button("Carregar da URL GitHub"):
-            if not url_raw: st.warning("Informe a URL raw do GitHub.")
-            else:
-                try:
-                    r = requests.get(url_raw, timeout=20); r.raise_for_status()
-                    df_raw = pd.read_excel(io.BytesIO(r.content))
-                    df_raw.columns = [str(c).strip().replace("\xa0", " ") for c in df_raw.columns]
-                    st.session_state.df_validado = normalizar_planilha_matriz(df_raw, col_site_hint); st.session_state.temp_edits = None
-                    st.success("Planilha carregada da URL!")
-                except Exception as e: st.error(f"Erro: {e}")
-    with b3:
-        if st.button("Gerar exemplo sintético"):
-            exemplo = pd.DataFrame({
-                "Site": ["UPGN Cabiunas", "UPGN Cacimbas", "P-68"],
-                "Outubro 2025": ["10,12,13,20", "10,12,13,21", "10,12,13,22"],
-                "Novembro 2025": ["10,12,13,21", "10,12,13,22", "10,12,13,23"],
-                "Dezembro 2025": ["10,12,13,22", "10,12,13,23", "10,12,13,24"],
-            })
-            st.session_state.df_validado = normalizar_planilha_matriz(exemplo, col_site="Site"); st.session_state.temp_edits = None
-            st.success("Exemplo carregado!")
+def exportar_excel(df: pd.DataFrame) -> bytes:
+    cols = ["site_nome", "data", "status", "observacao", "validador", "data_validacao"]
+    cols = [c for c in cols if c in df.columns]
+    df_exp = df[cols].copy()
+    df_exp["data"] = pd.to_datetime(df_exp["data"], errors="coerce").dt.strftime("%Y-%m-%d").fillna("")
+    dv = pd.to_datetime(df_exp["data_validacao"], errors="coerce")
+    df_exp["data_validacao"] = dv.dt.strftime("%Y-%m-%d %H:%M:%S").fillna("")
+    for c in set(df_exp.columns) - {"data", "data_validacao"}:
+        df_exp[c] = df_exp[c].fillna("").astype(str)
+    return write_excel_bytes(df_exp)
+
+def exportar_excel_full(df: pd.DataFrame) -> bytes:
+    return exportar_excel(df)
+
+# ===== Carregamento automático (sem uploader) =====
+st.title("🛰️ Calendário de Validação (GitHub)")
+st.caption("Planilha carregada automaticamente do repositório de dados. Marque **sim/nao**, clique **Salvar** para gerar um snapshot no GitHub.")
+
+# Estado
+if "df_validado" not in st.session_state:
+    st.session_state.df_validado = None
+if "temp_edits" not in st.session_state:
+    st.session_state.temp_edits = None
+
+def _load_from_repo() -> Optional[pd.DataFrame]:
+    src = _gh_src()
+    try:
+        if src:  # caminho fixo
+            content = fetch_file_bytes(src)
+            df_raw = pd.read_excel(io.BytesIO(content))
+            # se já estiver no formato "validacao", só padroniza
+            cols_low = {c.lower() for c in df_raw.columns}
+            if {"site_nome","data"}.issubset(cols_low):
+                df = df_raw.copy()
+                df["data"] = pd.to_datetime(df["data"], errors="coerce").dt.date
+                df["data_validacao"] = pd.to_datetime(df.get("data_validacao", pd.NaT), errors="coerce")
+                df["observacao"] = df.get("observacao","").astype(str)
+                df["validador"]  = df.get("validador","").astype(str)
+                df["status"]     = df.get("status","Pendente").astype(str)
+                df["yyyymm"]     = pd.to_datetime(df["data"]).dt.strftime("%Y-%m")
+                st.session_state["__fonte_path"] = src
+                return df.sort_values(["data","site_nome"]).reset_index(drop=True)
+            # senão, é matriz “Mês Ano”
+            df_norm = normalizar_planilha_matriz(df_raw, None)
+            st.session_state["__fonte_path"] = src
+            return df_norm
+        # Sem caminho fixo → usa último snapshot
+        meta = load_latest_meta()
+        df_auto = load_latest_snapshot_df()
+        if meta and "path" in meta:
+            st.session_state["__fonte_path"] = meta["path"]
+        else:
+            st.session_state["__fonte_path"] = f"{_gh_root()}/*(último)*"
+        return df_auto
+    except Exception as e:
+        st.error(f"Falha ao carregar planilha do GitHub: {e}")
+        return None
 
 if st.session_state.df_validado is None:
-    st.info("Carregue seu Excel para continuar."); st.stop()
+    with st.spinner("Carregando planilha do GitHub..."):
+        st.session_state.df_validado = _load_from_repo()
+    if st.session_state.df_validado is not None:
+        st.success("✅ Planilha carregada do GitHub.")
+    else:
+        st.stop()
+
+# Info da fonte + recarregar
+fonte = st.session_state.get("__fonte_path","(desconhecido)")
+colI, colR = st.columns([6,1])
+with colI:
+    st.info(f"**Fonte:** `{_gh_repo()} / {_gh_branch()} / {fonte}`")
+with colR:
+    if st.button("↻ Recarregar"):
+        st.session_state.df_validado = None
+        st.experimental_rerun()
 
 # ===== Filtros =====
 with st.sidebar:
@@ -361,7 +377,7 @@ fdf = (st.session_state.df_validado.loc[mask]
        .copy().sort_values(["data", "site_nome"])
        if not st.session_state.df_validado.empty else st.session_state.df_validado.copy())
 
-# ===== Editor com checkboxes =====
+# ===== Editor =====
 st.subheader("Tabela de passagens para validar")
 view = fdf[["site_nome", "data", "status", "observacao", "validador", "data_validacao"]].copy()
 view["data"] = pd.to_datetime(view["data"]).dt.strftime("%Y-%m-%d")
@@ -401,29 +417,6 @@ with col_save2:
 if st.session_state.temp_edits is None or not edited.equals(st.session_state.temp_edits):
     st.session_state.temp_edits = edited.copy()
 
-# ===== Export helpers (openpyxl) =====
-def exportar_excel(df: pd.DataFrame) -> bytes:
-    cols = ["site_nome", "data", "status", "observacao", "validador", "data_validacao"]
-    cols = [c for c in cols if c in df.columns]
-    df_exp = df[cols].copy()
-    df_exp["data"] = pd.to_datetime(df_exp["data"], errors="coerce").dt.strftime("%Y-%m-%d").fillna("")
-    dv = pd.to_datetime(df_exp["data_validacao"], errors="coerce")
-    df_exp["data_validacao"] = dv.dt.strftime("%Y-%m-%d %H:%M:%S").fillna("")
-    for c in set(df_exp.columns) - {"data", "data_validacao"}:
-        df_exp[c] = df_exp[c].fillna("").astype(str)
-    return write_excel_bytes(df_exp)
-
-def exportar_excel_full(df: pd.DataFrame) -> bytes:
-    cols = ["site_nome", "data", "status", "observacao", "validador", "data_validacao"]
-    cols = [c for c in cols if c in df.columns]
-    df_exp = df[cols].copy()
-    df_exp["data"] = pd.to_datetime(df_exp["data"], errors="coerce").dt.strftime("%Y-%m-%d").fillna("")
-    dv = pd.to_datetime(df_exp["data_validacao"], errors="coerce")
-    df_exp["data_validacao"] = dv.dt.strftime("%Y-%m-%d %H:%M:%S").fillna("")
-    for c in set(df_exp.columns) - {"data", "data_validacao"}:
-        df_exp[c] = df_exp[c].fillna("").astype(str)
-    return write_excel_bytes(df_exp)
-
 if save_clicked:
     base = st.session_state.df_validado
     e = st.session_state.temp_edits.copy()
@@ -454,7 +447,7 @@ if save_clicked:
         st.info(f"Salvo no GitHub: `{meta['path']}` (UTC: {meta['saved_at_utc']})")
     except Exception as e:
         st.warning(f"Salvou localmente, mas falhou ao publicar no GitHub: {e}")
-    # recalc fdf
+    # recalc
     mask = st.session_state.df_validado["site_nome"].isin(site_sel) & (st.session_state.df_validado["yyyymm"] == mes_ano)
     fdf = (st.session_state.df_validado.loc[mask]
            .copy().sort_values(["data", "site_nome"])
@@ -563,37 +556,42 @@ def montar_calendario(df_mes: pd.DataFrame, mes_ano: str,
     return fig
 
 st.subheader("Calendário do mês selecionado")
-fig = montar_calendario(fdf, mes_ano, only_color_with_events=st.session_state.get("only_color_with_events", True),
-                        show_badges=st.session_state.get("show_badges", True))
+mes_ano = st.sidebar.session_state.get("mes_ano", None) or st.session_state.df_validado["yyyymm"].max()
+fig = montar_calendario(
+    st.session_state.df_validado[st.session_state.df_validado["yyyymm"] == mes_ano],
+    mes_ano,
+    only_color_with_events=st.session_state.get("only_color_with_events", True),
+    show_badges=st.session_state.get("show_badges", True),
+)
 st.plotly_chart(fig, width='stretch', config={"displayModeBar": False})
 
-# ===== Exportar manual =====
+# ===== Exportar =====
 st.markdown("---"); st.subheader("Exportar")
-colA, colB = st.columns([1,2])
-with colA: nome_arquivo = st.text_input("Nome do arquivo", value="passagens_validado.xlsx")
-with colB:
-    xlsb = exportar_excel_full(st.session_state.df_validado)
-    st.download_button("Baixar Excel validado", data=xlsb, file_name=nome_arquivo,
-                       mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+nome_arquivo = st.text_input("Nome do arquivo", value="passagens_validado.xlsx")
+xlsb = exportar_excel_full(st.session_state.df_validado)
+st.download_button("Baixar Excel validado", data=xlsb, file_name=nome_arquivo,
+                   mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
 # ===== Diagnóstico GitHub =====
 with st.expander("🔧 Diagnóstico GitHub", expanded=False):
-    has_token  = "github_token"  in st.secrets
-    has_repo   = "github_repo"   in st.secrets
-    has_branch = "github_branch" in st.secrets
-    has_root   = "gh_data_root"  in st.secrets
-    st.write("Secrets:", {"github_token": has_token, "github_repo": has_repo, "github_branch": has_branch, "gh_data_root": has_root})
-    if has_repo:   st.write("Repo:", st.secrets["github_repo"])
-    if has_branch: st.write("Branch:", st.secrets["github_branch"])
-    if has_root:   st.write("Raiz:", st.secrets["gh_data_root"])
-    if st.button("🔎 Testar conexão e gravar ping.txt"):
+    has_token  = bool(_gh_token())
+    has_repo   = bool(_gh_repo())
+    has_branch = bool(_gh_branch())
+    has_root   = bool(_gh_root())
+    st.write("Secrets:", {"github_token": has_token, "github_repo": has_repo,
+                          "github_branch": has_branch, "gh_data_root": has_root})
+    if has_repo:   st.write("Repo:", _gh_repo())
+    if has_branch: st.write("Branch:", _gh_branch())
+    if has_root:   st.write("Raiz:", _gh_root())
+    disabled = not (has_token and has_repo)
+    if st.button("🔎 Testar conexão e gravar ping.txt", disabled=disabled):
         try:
             now = dt.datetime.utcnow(); stamp = now.strftime("%Y%m%d-%H%M%S")
-            path = f"{st.secrets.get('gh_data_root','data/validado')}/diagnostics/ping-{stamp}.txt"
-            url  = f"https://api.github.com/repos/{st.secrets['github_repo']}/contents/{path}"
+            path = f"{_gh_root()}/diagnostics/ping-{stamp}.txt"
             payload = {"message": f"diagnostics: ping {stamp}",
                        "content": base64.b64encode(f'ping {stamp}\n'.encode("utf-8")).decode("utf-8"),
-                       "branch": st.secrets.get("github_branch","main")}
+                       "branch": _gh_branch()}
+            url  = f"https://api.github.com/repos/{_gh_repo()}/contents/{path}"
             r = requests.put(url, headers=_gh_headers(), json=payload, timeout=30)
             st.write("HTTP:", r.status_code)
             try: st.json(r.json())
