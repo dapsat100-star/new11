@@ -354,7 +354,7 @@ if unsaved > 0:
     st.markdown(f'<div class="unsaved"><strong>{unsaved}</strong> alteração(ões) não salvas.</div>', unsafe_allow_html=True)
 
 # ============================================================================
-# SALVAR (GitHub)
+# SALVAR (GitHub) — corrigido para evitar KeyError
 # ============================================================================
 def _exportar_excel_bytes(df: pd.DataFrame) -> bytes:
     cols = ["site_nome","data","status","observacao","validador","data_validacao"]
@@ -375,13 +375,18 @@ def _aplicar_salvamento(edited_df: pd.DataFrame):
     keys = ["site_nome","data"]
     upd_cols = ["status","observacao","validador"]
 
-    merged = base.drop(columns=["observacao","validador"], errors="ignore") \
-                 .merge(e[keys + upd_cols], on=keys, how="left", suffixes=("","_novo"))
-    for c in upd_cols:
-        mask_upd = ~merged[f"{c}_novo"].isna()
-        merged.loc[mask_upd, c] = merged.loc[mask_upd, f"{c}_novo"]
-        merged = merged.drop(columns=[f"{c}_novo"])
+    # NÃO removemos colunas do base; garantimos sufixos para TODOS os campos
+    merged = base.merge(e[keys + upd_cols], on=keys, how="left", suffixes=("", "_novo"))
 
+    # aplica valor de *_novo quando existir e não for NaN
+    for c in upd_cols:
+        c_new = f"{c}_novo"
+        if c_new in merged.columns:
+            mask_upd = ~merged[c_new].isna()
+            merged.loc[mask_upd, c] = merged.loc[mask_upd, c_new]
+            merged.drop(columns=[c_new], inplace=True, errors="ignore")
+
+    # marca data_validacao quando vira Aprovada/Rejeitada e estava vazia
     mudou = merged["status"].isin(["Aprovada","Rejeitada"]) & merged["data_validacao"].isna()
     ts_now = dt.datetime.now(dt.timezone.utc).replace(tzinfo=None)
     merged.loc[mudou, "data_validacao"] = ts_now
@@ -545,3 +550,4 @@ with st.expander("🔧 Diagnóstico GitHub", expanded=False):
         st.session_state.df_validado = load_latest_snapshot_df()
         st.session_state.ultimo_meta = load_latest_meta()
         _rerun()
+
