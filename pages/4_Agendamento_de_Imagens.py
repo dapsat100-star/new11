@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # pages/4_Agendamento_de_Imagens.py
 # UX estilo SaaS + Sidebar fixa + filtros com contorno visível
-# Fluxo de salvamento simplificado (1 botão), auto-refresh após salvar
+# Fluxo de salvamento simples (1 botão) + auto-refresh após salvar
 # GitHub com token + fallback via latest.json + cache simples
 # Correção de merge/salvamento e uso de openpyxl
 
@@ -96,7 +96,6 @@ section[data-testid="stSidebar"] {
   --sb-bg-focus: #ffffff;       /* foco */
   --sb-focus-ring: rgba(31,111,235,.18); /* anel de foco azul */
 }
-/* Caixa do Select/MultiSelect */
 section[data-testid="stSidebar"] div[data-baseweb="select"] > div {
   border: 1.5px solid var(--sb-border) !important;
   background: var(--sb-bg) !important;
@@ -111,7 +110,6 @@ section[data-testid="stSidebar"] div[data-baseweb="select"] > div:focus-within {
   background: var(--sb-bg-focus) !important;
   box-shadow: 0 0 0 3px var(--sb-focus-ring) !important;
 }
-/* Chips (tags) do MultiSelect */
 section[data-testid="stSidebar"] div[data-baseweb="tag"] {
   background: #ffffff !important;
   color: #111827 !important;
@@ -122,33 +120,24 @@ section[data-testid="stSidebar"] div[data-baseweb="tag"] {
 section[data-testid="stSidebar"] div[data-baseweb="tag"]:hover {
   border-color: var(--sb-border-strong) !important;
 }
-/* Ícone de fechar do chip */
-section[data-testid="stSidebar"] div[data-baseweb="tag"] svg {
-  fill: #6b7280 !important;
-}
-section[data-testid="stSidebar"] div[data-baseweb="tag"]:hover svg {
-  fill: #374151 !important;
-}
-/* Títulos da sidebar */
+section[data-testid="stSidebar"] div[data-baseweb="tag"] svg { fill: #6b7280 !important; }
+section[data-testid="stSidebar"] div[data-baseweb="tag"]:hover svg { fill: #374151 !important; }
 section[data-testid="stSidebar"] h2, 
-section[data-testid="stSidebar"] h3 {
-  color: #111827 !important;
-}
+section[data-testid="stSidebar"] h3 { color: #111827 !important; }
 </style>
 """, unsafe_allow_html=True)
 
 # ============================================================================
-# Função de RERUN compatível (novo e antigo Streamlit)
+# RERUN compatível
 # ============================================================================
 def _rerun():
-    """Compat: usa st.rerun() (novo) ou st.experimental_rerun() (antigo)."""
     if hasattr(st, "rerun"):
         st.rerun()
     else:
         st.experimental_rerun()
 
 # ============================================================================
-# LOGO FIXO SUPERIOR DIREITO (opcional)
+# LOGO (opcional)
 # ============================================================================
 def _logo_b64_from(path: str) -> Optional[str]:
     p = Path(path)
@@ -167,7 +156,7 @@ if _LOGO_B64:
     """, unsafe_allow_html=True)
 
 # ============================================================================
-# GITHUB – utilitários (com token + fallback e cache simples)
+# GITHUB utils (token + fallback + cache)
 # ============================================================================
 def _gh_headers() -> Dict[str, str]:
     headers = {"Accept": "application/vnd.github+json"}
@@ -181,7 +170,6 @@ def _gh_branch(): return st.secrets.get("github_branch", "main")
 def _gh_root():   return st.secrets.get("gh_data_root", "data/validado")
 
 def _list_contents(path: str):
-    """Lista itens usando a API com token (evita 403)."""
     url = f"https://api.github.com/repos/{_gh_repo()}/contents/{path}?ref={_gh_branch()}"
     r = requests.get(url, headers=_gh_headers(), timeout=20)
     if r.status_code == 403 and "rate limit" in r.text.lower():
@@ -229,7 +217,6 @@ def gh_save_snapshot(xls_bytes: bytes, author: Optional[str] = None) -> dict:
     return latest
 
 def load_latest_meta() -> Optional[dict]:
-    """Lê latest.json via raw (não usa API, menor chance de 403)."""
     try:
         root = _gh_root().rstrip("/")
         url = f"https://raw.githubusercontent.com/{_gh_repo()}/{_gh_branch()}/{root}/latest.json"
@@ -238,7 +225,6 @@ def load_latest_meta() -> Optional[dict]:
     except Exception:
         return None
 
-# cache simples em memória pra reduzir chamadas à API
 def _cached_list_all_xlsx(path: str, ttl: int = 300) -> List[str]:
     key = "_cache_list_all_xlsx"
     now = time.time()
@@ -252,8 +238,7 @@ def _cached_list_all_xlsx(path: str, ttl: int = 300) -> List[str]:
     return data
 
 def load_latest_snapshot_df() -> Optional[pd.DataFrame]:
-    """1) tenta via latest.json (raw); 2) fallback: lista via API com token + cache."""
-    # 1) pelo latest.json
+    # 1) pelo latest.json (raw)
     try:
         meta = load_latest_meta()
         if meta and meta.get("path"):
@@ -271,7 +256,7 @@ def load_latest_snapshot_df() -> Optional[pd.DataFrame]:
     except Exception as e:
         st.warning(f"Falhou ao baixar pelo latest.json: {e}")
 
-    # 2) fallback: lista via API (com token + cache)
+    # 2) fallback via API (com cache)
     try:
         all_files = _cached_list_all_xlsx(_gh_root(), ttl=300)
         if not all_files:
@@ -314,12 +299,11 @@ PT_MESES = ["janeiro","fevereiro","março","abril","maio","junho","julho","agost
 def mes_label_pt(yyyymm: str) -> str:
     y, m = yyyymm.split("-"); return f"{PT_MESES[int(m)-1].capitalize()} de {y}"
 
-def _editor_key(sites: list[str], mes: str) -> str:
-    # Gera uma chave estável por filtro para resetar o editor quando os filtros mudam
+def _editor_key(sites: List[str], mes: str) -> str:
     return f"ed_{mes}_{abs(hash(tuple(sites)))%100000}"
 
 # ============================================================================
-# SIDEBAR (conteúdo)
+# SIDEBAR
 # ============================================================================
 with st.sidebar:
     st.header("📚 Módulos")
@@ -343,10 +327,10 @@ with st.sidebar:
     st.session_state["usuario_logado"] = autor_atual or "—"
 
 # ============================================================================
-# APP BAR (meta)
+# APP BAR
 # ============================================================================
 meta_html = ""
-if st.session_state.get("ultimo_meta"):
+if "ultimo_meta" in st.session_state and st.session_state.ultimo_meta:
     meta = st.session_state.ultimo_meta
     meta_html = f'Último autor: {meta.get("author","—")} · Salvo (UTC): {meta.get("saved_at_utc","")} · <code>{meta.get("path","")}</code>'
 
@@ -357,7 +341,7 @@ st.markdown(f"""
 </div></div>
 """, unsafe_allow_html=True)
 
-# Mensagem pós-salvamento (mostra após rerun)
+# Mensagem pós-salvamento
 if st.session_state.get("__last_save_ok"):
     st.success(st.session_state.pop("__last_save_ok"))
 
@@ -385,10 +369,7 @@ colcfg = {
     "site_nome": st.column_config.TextColumn("Site", disabled=True, width="medium"),
     "data": st.column_config.TextColumn("Data", disabled=True, width="small"),
     "status": st.column_config.SelectboxColumn(
-        "Status",
-        options=["Pendente","Aprovada","Rejeitada"],
-        required=True,
-        width="small"
+        "Status", options=["Pendente","Aprovada","Rejeitada"], required=True, width="small"
     ),
     "observacao": st.column_config.TextColumn("Observação", width="medium"),
     "validador": st.column_config.TextColumn("Validador", width="small"),
@@ -417,12 +398,11 @@ def _unsaved_mask(orig: pd.DataFrame, ed: pd.DataFrame) -> pd.Series:
 
 changed_mask = _unsaved_mask(view, edited)
 unsaved = int(changed_mask.sum())
-
 if unsaved > 0:
     st.markdown(f'<div class="unsaved"><strong>{unsaved}</strong> alteração(ões) não salvas.</div>', unsafe_allow_html=True)
 
 # ============================================================================
-# SALVAR (GitHub) — uma única action clara + refresh automático
+# SALVAR (1 botão) + auto-refresh
 # ============================================================================
 def _exportar_excel_bytes(df: pd.DataFrame) -> bytes:
     cols = ["site_nome","data","status","observacao","validador","data_validacao"]
@@ -456,7 +436,6 @@ def _aplicar_salvamento(edited_df: pd.DataFrame):
     merged.loc[mudou, "data_validacao"] = ts_now
 
     st.session_state.df_validado = merged
-
     try:
         xlsb = _exportar_excel_bytes(merged)
         meta = gh_save_snapshot(xlsb, author=st.session_state.get("usuario_logado",""))
@@ -464,10 +443,8 @@ def _aplicar_salvamento(edited_df: pd.DataFrame):
         st.session_state["__last_save_ok"] = f"Publicado no GitHub: `{meta['path']}` (UTC: {meta['saved_at_utc']})"
     except Exception as e:
         st.session_state["__last_save_ok"] = f"Salvou localmente, mas falhou ao publicar no GitHub: {e}"
-
     _rerun()
 
-# Único botão de salvar (desabilitado sem mudanças)
 save_clicked = st.button("💾 Salvar alterações", type="primary", disabled=(unsaved == 0))
 if save_clicked:
     _aplicar_salvamento(edited)
@@ -507,7 +484,7 @@ if dias_disponiveis:
 else:
     st.caption("Sem passagens no mês/site(s) filtrados.")
 
-# Calendário
+# ---- Calendário (fix: 'and' no if) -----------------------------------------
 def montar_calendario(df_mes: pd.DataFrame, mes_ano: str,
                       only_color_with_events: bool = True,
                       show_badges: bool = True) -> go.Figure:
@@ -542,7 +519,7 @@ def montar_calendario(df_mes: pd.DataFrame, mes_ano: str,
     week = 0
     for d in dias:
         col = weekday_dom(d)
-        if col == 0 e d.day != 1:
+        if col == 0 and d.day != 1:   # ✅ fix aqui
             week += 1
         grid[week, col] = d
 
@@ -550,7 +527,8 @@ def montar_calendario(df_mes: pd.DataFrame, mes_ano: str,
     for r in range(6):
         for c in range(7):
             d = grid[r, c]
-            if d is None: continue
+            if d is None: 
+                continue
             fill = cor_do_dia(d)
             fig.add_shape(type="rect", x0=c, x1=c+1, y0=5-r, y1=6-r,
                           line=dict(width=1, color="#90A4AE"), fillcolor=fill)
@@ -616,3 +594,4 @@ with st.expander("🔧 Diagnóstico GitHub", expanded=False):
         st.session_state.df_validado = load_latest_snapshot_df()
         st.session_state.ultimo_meta = load_latest_meta()
         _rerun()
+
