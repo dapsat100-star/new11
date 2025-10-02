@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # pages/4_Agendamento_de_Imagens.py
 # Módulo Agendamento de Imagens (cronograma)
-# - Sem UI de upload: carrega direto do GitHub
+# - Sem UI de upload: carrega direto do GitHub.
 # - Se houver secrets agenda_source_path (ou AGENDA_SOURCE_PATH), usa esse arquivo fixo.
 # - Senão, carrega o último snapshot em gh_data_root.
 # - Salva snapshots em cronograma/data/validado/YYYY/MM/validado-*.xlsx
@@ -319,7 +319,7 @@ def _load_from_repo() -> Optional[pd.DataFrame]:
                 df["data"] = pd.to_datetime(df["data"], errors="coerce").dt.date
                 df["data_validacao"] = pd.to_datetime(df.get("data_validacao", pd.NaT), errors="coerce")
                 df["observacao"] = df.get("observacao","").astype(str)
-                df["validador"]  = df.get("validador","").astype(str)
+                df["validador"]  = df.get("validador","").astype str if False else df.get("validador","").astype(str)  # keep safe
                 df["status"]     = df.get("status","Pendente").astype(str)
                 df["yyyymm"]     = pd.to_datetime(df["data"]).dt.strftime("%Y-%m")
                 st.session_state["__fonte_path"] = src
@@ -382,7 +382,9 @@ fdf = (st.session_state.df_validado.loc[mask]
        if not st.session_state.df_validado.empty else st.session_state.df_validado.copy())
 
 # ===== Editor =====
-st.subheader("Tabela de passagens para validar")
+_mes_ano_hdr = st.session_state.get("mes_ano") or st.session_state.df_validado["yyyymm"].max()
+st.subheader(f"Tabela de passagens — {rotulo_mes_ano_pt(_mes_ano_hdr)}")
+
 view = fdf[["site_nome", "data", "status", "observacao", "validador", "data_validacao"]].copy()
 view["data"] = pd.to_datetime(view["data"]).dt.strftime("%Y-%m-%d")
 view["sim"] = (view["status"] == "Aprovada")
@@ -452,13 +454,16 @@ if save_clicked:
     except Exception as e:
         st.warning(f"Salvou localmente, mas falhou ao publicar no GitHub: {e}")
     # recalc
-    mask = st.session_state.df_validado["site_nome"].isin(site_sel) & (st.session_state.df_validado["yyyymm"] == st.session_state.get("mes_ao", mes_ano))
+    mask = st.session_state.df_validado["site_nome"].isin(site_sel) & (st.session_state.df_validado["yyyymm"] == st.session_state.get("mes_ano", mes_ano))
     fdf = (st.session_state.df_validado.loc[mask]
            .copy().sort_values(["data", "site_nome"])
            if not st.session_state.df_validado.empty else st.session_state.df_validado.copy())
 
 # ===== Ações em lote =====
-st.markdown("### ⚙️ Ações em lote por dia")
+_mes_ano_hdr = st.session_state.get("mes_ano") or st.session_state.df_validado["yyyymm"].max()
+_y, _m = _mes_ano_hdr.split("-")
+st.markdown(f"### ⚙️ Ações em lote por dia — {_m.zfill(2)}/{_y}")
+
 dias_disponiveis = sorted(pd.to_datetime(fdf["data"]).dt.date.unique())
 if dias_disponiveis:
     d_sel = st.selectbox("Dia", options=dias_disponiveis, format_func=lambda d: d.strftime("%Y-%m-%d"))
@@ -608,4 +613,5 @@ with st.expander("🔧 Diagnóstico GitHub", expanded=False):
                 st.error("❌ Não consegui gravar. Veja o JSON acima (repo/branch/token).")
         except Exception as e:
             st.exception(e)
+
 
