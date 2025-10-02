@@ -1,13 +1,14 @@
 # -*- coding: utf-8 -*-
 # pages/4_Agendamento_de_Imagens.py
 # Calendário + validação (sim/não) + GitHub + Auto-load + Último Autor
+
 from __future__ import annotations
 
 import io
 import base64
 import json
 import datetime as dt
-from typing import Dict, List, Optional
+from typing import Optional, List, Dict
 
 import numpy as np
 import pandas as pd
@@ -28,9 +29,10 @@ st.set_page_config(
 st.markdown(
     """
     <style>
+      header[data-testid="stHeader"]{ display:none !important; }
       /* Esconde o botão de recolher a sidebar */
       div[data-testid="collapsedControl"]{ display:none !important; }
-      /* Mantém a sidebar visível, sem nav nativo (opcional) */
+      /* Remove navegação nativa da sidebar (vamos usar links próprios) */
       section[data-testid="stSidebar"] nav, div[data-testid="stSidebarNav"]{ display:none!important; }
       /* Títulos um pouco mais compactos */
       .block-container{ padding-top: .6rem !important; }
@@ -154,6 +156,10 @@ if "df_validado" not in st.session_state:
         st.session_state.df_validado = load_latest_snapshot_df()
         st.session_state.ultimo_meta = load_latest_meta()
 
+if st.session_state.df_validado is None or st.session_state.df_validado.empty:
+    st.info("Nenhum snapshot encontrado no GitHub. Salve ao menos um arquivo.")
+    st.stop()
+
 # -----------------------------------------------------------------------------
 # SIDEBAR (links, filtros)
 # -----------------------------------------------------------------------------
@@ -166,18 +172,14 @@ with st.sidebar:
     st.markdown("---")
 
     st.header("Filtros")
-    if st.session_state.df_validado is None or st.session_state.df_validado.empty:
-        st.info("Nenhum snapshot encontrado no GitHub. Salve ao menos um arquivo.")
-        st.stop()
-
     dfv = st.session_state.df_validado
     sites = sorted(dfv["site_nome"].dropna().unique())
     sel_sites = st.multiselect("Sites", options=sites, default=sites)
 
     meses = sorted(dfv["yyyymm"].dropna().unique())
-    # guarda seleção no session_state (NÃO usar st.sidebar.session_state)
     mes_default = st.session_state.get("mes_ano") or (meses[-1] if meses else None)
-    mes_ano = st.selectbox("Mês", options=meses, index=max(0, meses.index(mes_default)) if mes_default in meses else len(meses)-1)
+    idx = max(0, meses.index(mes_default)) if (mes_default in meses) else len(meses)-1
+    mes_ano = st.selectbox("Mês", options=meses, index=idx)
     st.session_state["mes_ano"] = mes_ano
 
     autor_atual = st.text_input("Seu nome (autor do commit)", value=st.session_state.get("usuario_logado","")).strip()
@@ -188,7 +190,6 @@ with st.sidebar:
 # -----------------------------------------------------------------------------
 PT_MESES = ["janeiro","fevereiro","março","abril","maio","junho","julho","agosto","setembro","outubro","novembro","dezembro"]
 def mes_label_pt(mes_ano: str) -> str:
-    # mes_ano = "YYYY-MM"
     y, m = mes_ano.split("-")
     nome = PT_MESES[int(m)-1].capitalize()
     return f"{nome} de {y}"
@@ -203,6 +204,7 @@ if st.session_state.ultimo_meta:
     meta = st.session_state.ultimo_meta
     st.caption(f"**Último autor:** {meta.get('author','—')}  •  **Salvo (UTC):** {meta.get('saved_at_utc','')}  •  `{meta.get('path','')}`")
 
+dfv = st.session_state.df_validado
 mask = dfv["site_nome"].isin(sel_sites) & (dfv["yyyymm"] == mes_ano)
 fdf = dfv.loc[mask].copy().sort_values(["data","site_nome"])
 
@@ -257,7 +259,6 @@ def _exportar_excel_bytes(df: pd.DataFrame) -> bytes:
         out[c] = out[c].fillna("").astype(str)
 
     buf = io.BytesIO()
-    # usa openpyxl para evitar dependência de xlsxwriter
     with pd.ExcelWriter(buf, engine="openpyxl") as writer:
         out.to_excel(writer, index=False, sheet_name="validacao")
     buf.seek(0)
@@ -284,16 +285,14 @@ if save_clicked:
     merged.loc[mask_new, "status"] = merged.loc[mask_new, "status_novo"]
     merged = merged.drop(columns=["status_novo"])
 
-    # coloca data de validação quando muda para Aprovada/Rejeitada e não tinha timestamp
     mudou = merged["status"].isin(["Aprovada","Rejeitada"]) & merged["data_validacao"].isna()
-    ts_now = dt.datetime.now(dt.timezone.utc).replace(tzinfo=None)  # timestamp em UTC (naive)
+    ts_now = dt.datetime.now(dt.timezone.utc).replace(tzinfo=None)
     merged.loc[mudou, "data_validacao"] = ts_now
 
     st.session_state.df_validado = merged
     st.session_state.temp_edits = None
     st.success("Alterações salvas localmente.")
 
-    # publica no GitHub
     try:
         xlsb = _exportar_excel_bytes(st.session_state.df_validado)
         meta = gh_save_snapshot(xlsb, author=st.session_state.get("usuario_logado",""))
@@ -303,14 +302,13 @@ if save_clicked:
         st.warning(f"Salvou localmente, mas falhou ao publicar no GitHub: {e}")
 
 # -----------------------------------------------------------------------------
-# CALENDÁRIO (mês selecionado)
+# AÇÕES EM LOTE + CALENDÁRIO
 # -----------------------------------------------------------------------------
 def montar_calendario(df_mes: pd.DataFrame, mes_ano: str,
                       only_color_with_events: bool = True,
                       show_badges: bool = True) -> go.Figure:
     primeiro = pd.to_datetime(f"{mes_ano}-01")
-    ultimo = (pr
-imeiro + pd.offsets.MonthEnd(1))
+    ultimo = (primeiro + pd.offsets.MonthEnd(1))
     dias = pd.date_range(primeiro, ultimo, freq="D")
 
     if df_mes.empty:
@@ -334,8 +332,7 @@ imeiro + pd.offsets.MonthEnd(1))
         return "#2e7d32"
 
     def weekday_dom(d: pd.Timestamp) -> int:
-        # domingo como coluna 0
-        return (d.weekday() + 1) % 7
+        return (d.weekday() + 1) % 7  # domingo na coluna 0
 
     grid = np.full((6, 7), None, dtype=object)
     week = 0
@@ -349,7 +346,8 @@ imeiro + pd.offsets.MonthEnd(1))
     for r in range(6):
         for c in range(7):
             d = grid[r, c]
-            if d is None: continue
+            if d is None:
+                continue
             fill = cor_do_dia(d)
             fig.add_shape(
                 type="rect", x0=c, x1=c+1, y0=5-r, y1=6-r,
@@ -381,7 +379,6 @@ imeiro + pd.offsets.MonthEnd(1))
                     showarrow=False, xanchor="right", yanchor="bottom", font=dict(size=10)
                 )
 
-            # ponto invisível apenas para hover detalhado
             if inf is not None:
                 sites_txt = ", ".join(inf["sites"]) if inf["sites"] else "-"
                 hover = (f"{d.strftime('%Y-%m-%d')}<br>"
@@ -393,12 +390,17 @@ imeiro + pd.offsets.MonthEnd(1))
                     hovertemplate=hover, showlegend=False
                 ))
 
-    fig.update_xaxes(visible=False); fig.update_yaxes(visible=False)
-    fig.update_layout(height=460, margin=dict(l=10, r=10, t=10, b=10),
-                      paper_bgcolor="white", plot_bgcolor="white"))
+    fig.update_xaxes(visible=False)
+    fig.update_yaxes(visible=False)
+    fig.update_layout(
+        height=460,
+        margin=dict(l=10, r=10, t=10, b=10),
+        paper_bgcolor="white",
+        plot_bgcolor="white"
+    )
     return fig
 
-st.subheader(f"📆 Ações em lote por dia — {label_mes}")
+st.markdown(f"### ⚙️ Ações em lote por dia — {label_mes}")
 dias_disponiveis = sorted(pd.to_datetime(fdf["data"]).dt.date.unique())
 if dias_disponiveis:
     d_sel = st.selectbox("Dia", options=dias_disponiveis,
@@ -439,7 +441,6 @@ if dias_disponiveis:
 else:
     st.caption("Sem passagens no mês/site(s) filtrados.")
 
-# CALENDÁRIO
 st.subheader(f"Calendário do mês selecionado — {label_mes}")
 fig = montar_calendario(
     fdf,
@@ -447,7 +448,7 @@ fig = montar_calendario(
     only_color_with_events=True,
     show_badges=True
 )
-st.plotly_chart(fig, width='stretch', config={"displayModeBar": False})
+st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
 
 # Exportar manual (download)
 st.markdown("---")
@@ -481,4 +482,5 @@ with st.expander("🔧 Diagnóstico GitHub"):
         st.session_state.df_validado = load_latest_snapshot_df()
         st.session_state.ultimo_meta = load_latest_meta()
         st.experimental_rerun()
+
 
