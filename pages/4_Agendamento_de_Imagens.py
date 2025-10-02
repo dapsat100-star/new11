@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 # pages/4_Agendamento_de_Imagens.py
-# UX estilo SaaS + Sidebar fixa (sem colapsar) + compatibilidade ampla do Streamlit
+# UX estilo SaaS + Sidebar fixa + compat Streamlit + ações em lote + calendário
 
 from __future__ import annotations
 
@@ -27,7 +27,7 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# --- Sidebar sempre fixa/visível (sem colapsar) ---
+# --- Sidebar sempre fixa/visível (sem colapsar) + CSS SaaS ---
 st.markdown("""
 <style>
 /* Remove o botão de colapso (hamburger) */
@@ -55,36 +55,53 @@ div[data-testid="stSidebarNav"] { display: none !important; }
 
 /* Ajustes do conteúdo principal */
 .reportview-container .main .block-container {max-width: 1320px; padding-top: .6rem; padding-bottom: 4rem;}
+
 /* App bar */
 .appbar {position: sticky; top: 0; z-index: 50; background:#ffffffcc; backdrop-filter: blur(8px);
   border-bottom:1px solid #eef0f3; margin-bottom:8px;}
 .appbar-inner {display:flex; align-items:center; justify-content:space-between; padding:10px 0;}
 .appbar h1 {font-size:1.6rem; margin:0;}
 .appbar .meta {color:#6b7280; font-size:.9rem;}
+
 /* Cards */
 .card {background:#fff; border:1px solid #eef0f3; border-radius:16px;
   box-shadow:0 1px 2px rgba(16,24,40,.04); padding:16px; margin:12px 0;}
 .card h3 {margin:0 0 8px 0; font-size:1.1rem}
+
 /* Botões */
 .btn-primary {background:#1f6feb; border:1px solid #1f6feb; color:#fff;
   border-radius:10px; padding:8px 14px; font-weight:600;}
 .btn-ghost {background:#fff; border:1px solid #e5e7eb; color:#111827;
   border-radius:10px; padding:8px 14px; font-weight:600;}
+
 /* Badges */
 .badge{display:inline-flex; align-items:center; padding:2px 8px; border-radius:999px;
   font-size:12px; font-weight:600; vertical-align:middle;}
 .badge-pendente{background:#fff7ed; color:#b45309; border:1px solid #fed7aa;}
 .badge-aprovado{background:#ecfdf5; color:#166534; border:1px solid #bbf7d0;}
 .badge-rejeitado{background:#fef2f2; color:#991b1b; border:1px solid #fecaca;}
+
 /* Tabela: cabeçalho sticky */
 [data-testid="stTable"] thead tr {position: sticky; top: 48px; background:#fff; z-index:5; box-shadow:0 1px 0 #eef0f3;}
+
 /* Barra de aviso */
 .unsaved {background:#fff; border:1px solid #e5e7eb; border-radius:14px; padding:10px 14px;
   box-shadow:0 8px 24px rgba(16,24,40,.12); display:flex; gap:10px; align-items:center;}
+
 /* Esconde header padrão do Streamlit */
 header[data-testid="stHeader"]{ display:none !important; }
 </style>
 """, unsafe_allow_html=True)
+
+# ============================================================================
+# Função de RERUN compatível (novo e antigo Streamlit)
+# ============================================================================
+def _rerun():
+    """Compat: usa st.rerun() (novo) ou st.experimental_rerun() (antigo)."""
+    if hasattr(st, "rerun"):
+        st.rerun()
+    else:
+        st.experimental_rerun()
 
 # ============================================================================
 # LOGO FIXO SUPERIOR DIREITO (opcional)
@@ -212,7 +229,6 @@ PT_MESES = ["janeiro","fevereiro","março","abril","maio","junho","julho","agost
 def mes_label_pt(yyyymm: str) -> str:
     y, m = yyyymm.split("-"); return f"{PT_MESES[int(m)-1].capitalize()} de {y}"
 
-# Suporte a MarkdownColumn (pode não existir em versões antigas do Streamlit)
 SUPPORT_MD = hasattr(st.column_config, "MarkdownColumn")
 
 def badge_html(status: str) -> str:
@@ -271,7 +287,7 @@ with c2:
     if st.button("Atualizar", use_container_width=True):
         st.session_state.df_validado = load_latest_snapshot_df()
         st.session_state.ultimo_meta = load_latest_meta()
-        st.experimental_rerun()
+        _rerun()
 with c3:
     save_clicked_top = st.button("💾 Salvar alterações", type="primary", use_container_width=True)
 
@@ -528,5 +544,4 @@ with st.expander("🔧 Diagnóstico GitHub", expanded=False):
     if st.button("🔄 Recarregar último snapshot do GitHub"):
         st.session_state.df_validado = load_latest_snapshot_df()
         st.session_state.ultimo_meta = load_latest_meta()
-        st.experimental_rerun()
-
+        _rerun()
