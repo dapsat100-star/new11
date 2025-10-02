@@ -167,7 +167,7 @@ left, right = st.columns([1.15, 1], gap="large")
 
 with left:
     st.markdown("<div class='hero-wrap'>", unsafe_allow_html=True)
-    for cand in ("dapatlas.png","dapatlas.jpeg","logo.png","logo.jpeg"):
+    for cand in ("dapatlas.png","dapatlas.jpeg","logo.png","logo.jpeg","logomavipe.jpeg"):
         if Path(cand).exists():
             st.markdown("<div class='logo-card'>", unsafe_allow_html=True)
             st.image(Image.open(cand), width=180)
@@ -184,7 +184,6 @@ with left:
       <li>{t['bul3']}</li>
     </ul>
     """, unsafe_allow_html=True)
-    # ✅ Botões (Login + Saiba mais → dapsat.com)
     st.markdown(
         f"<div class='cta-row'><a class='btn-primary' href='#login'>{t['cta_login']}</a>"
         f"<a class='btn-ghost' href='https://dapsat.com/' target='_blank' rel='noopener noreferrer'>{t['cta_about']}</a></div>",
@@ -218,6 +217,20 @@ with right:
     st.markdown(f"<div class='login-note'>{t['confidential']}</div></div>", unsafe_allow_html=True)
 
 # ------------------------------------------------------------
+# Helpers para links/paths (raiz ou /pages)
+# ------------------------------------------------------------
+def _first_existing(*paths: str) -> str | None:
+    for p in paths:
+        if Path(p).exists():
+            return p
+    return None
+
+GEO_PAGE = _first_existing("2_Geoportal.py", "pages/2_Geoportal.py")
+AGENDA_PAGE = _first_existing("4_Agendamento_de_Imagens.py", "pages/4_Agendamento_de_Imagens.py")
+RELATORIO_PAGE = _first_existing("3_Relatorio_OGMP_2_0.py", "pages/3_Relatorio_OGMP_2_0.py")
+ESTATS_PAGE = _first_existing("1_Estatisticas_Gerais.py", "pages/1_Estatisticas_Gerais.py")
+
+# ------------------------------------------------------------
 # Estado do login
 # ------------------------------------------------------------
 if 'auth_status' in locals():
@@ -236,7 +249,7 @@ if 'auth_status' in locals():
         st.info(t["login_hint"])
 
     if auth_status:
-        # grava no session_state para o Geoportal
+        # grava no session_state para as outras páginas
         st.session_state["authentication_status"] = True
         st.session_state["name"] = name
         st.session_state["username"] = username
@@ -247,19 +260,35 @@ if 'auth_status' in locals():
         except Exception:
             authenticator.logout("Sair", "sidebar")
 
-        # ✅ Link único fixo na sidebar
-        st.sidebar.page_link("pages/2_Geoportal.py", label="GEOPORTAL", icon="🗺️")
+        # ✅ Links fixos na sidebar (habilita módulos)
+        if GEO_PAGE:
+            st.sidebar.page_link(GEO_PAGE, label="GEOPORTAL", icon="🗺️")
+        if AGENDA_PAGE:
+            st.sidebar.page_link(AGENDA_PAGE, label="AGENDAMENTO DE IMAGENS", icon="🗓️")
+        if RELATORIO_PAGE:
+            st.sidebar.page_link(RELATORIO_PAGE, label="RELATÓRIO OGMP 2.0", icon="📄")
+        if ESTATS_PAGE:
+            st.sidebar.page_link(ESTATS_PAGE, label="ESTATÍSTICAS", icon="📊")
 
-        # ==== Redirecionar automaticamente para Geoportal ====
+        # ==== Redirecionar automaticamente para Geoportal (mantido) ====
         if not st.session_state.get("redirected_to_geoportal"):
             st.session_state["redirected_to_geoportal"] = True
-            try:
-                st.switch_page("pages/2_Geoportal.py")
-            except Exception:
-                st.success("Login OK! Clique abaixo para abrir o Geoportal.")
-                st.page_link("pages/2_Geoportal.py", label="GEOPORTAL", icon="🗺️")
-                st.stop()
-        # =====================================================
+            target = GEO_PAGE or AGENDA_PAGE or RELATORIO_PAGE or ESTATS_PAGE
+            if target:
+                try:
+                    st.switch_page(target)
+                except Exception:
+                    st.success("Login OK! Use os atalhos abaixo para abrir os módulos.")
+                    if GEO_PAGE:
+                        st.page_link(GEO_PAGE, label="GEOPORTAL", icon="🗺️")
+                    if AGENDA_PAGE:
+                        st.page_link(AGENDA_PAGE, label="AGENDAMENTO DE IMAGENS", icon="🗓️")
+                    if RELATORIO_PAGE:
+                        st.page_link(RELATORIO_PAGE, label="RELATÓRIO OGMP 2.0", icon="📄")
+                    if ESTATS_PAGE:
+                        st.page_link(ESTATS_PAGE, label="ESTATÍSTICAS", icon="📊")
+                    st.stop()
+        # ===============================================================
 
 # ------------------------------------------------------------
 # Footer
@@ -273,3 +302,4 @@ st.markdown(f"""
        <a href="https://example.com/privacidade" target="_blank">{t["privacy"]}</a></div>
 </div>
 """, unsafe_allow_html=True)
+
