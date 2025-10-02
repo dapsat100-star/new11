@@ -47,24 +47,32 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 # ----------------- Página -----------------
-st.set_page_config(page_title="Geoportal — Metano", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(
+    page_title="Geoportal — Metano",
+    layout="wide",
+    initial_sidebar_state="expanded"   # ✅ sempre expandida
+)
 
-# === CSS para UI (remove menu multipágina e reduz padding do topo) ===
+# === CSS global desta página ===
 st.markdown(
     """
 <style>
 /* Esconde o cabeçalho nativo */
 header[data-testid="stHeader"] { display: none !important; }
 
-/* Mantém a sidebar visível (conteúdo customizado) */
+/* Sidebar SEMPRE visível/expandida */
 section[data-testid="stSidebar"], aside[data-testid="stSidebar"] {
-  display: block !important; transform: none !important; visibility: visible !important;
+  display: block !important;
+  visibility: visible !important;
+  transform: none !important;
 }
-div[data-testid="collapsedControl"]{ display:block !important; }
 
-/* REMOVE o menu multipágina padrão da sidebar */
+/* NUNCA mostrar o botão de colapsar */
+div[data-testid="collapsedControl"] { display: none !important; }
+
+/* REMOVER menu multipágina nativo da sidebar (vamos usar page_link) */
 div[data-testid="stSidebarNav"] { display: none !important; }
-section[data-testid="stSidebar"] nav { display: none !important; }
+section[data-testid="stSidebar"] nav, 
 section[data-testid="stSidebar"] [role="navigation"] { display: none !important; }
 
 /* Logo fixo no topo-direito */
@@ -72,6 +80,14 @@ section[data-testid="stSidebar"] [role="navigation"] { display: none !important;
 
 /* Aproxima o conteúdo do topo (título sobe) */
 main.block-container { padding-top: 0.0rem !important; }
+
+/* Largura mínima da sidebar (evita encolher) */
+@media (max-width: 3000px){
+  section[data-testid="stSidebar"]{
+    min-width: 300px !important;
+    width: 300px !important;
+  }
+}
 </style>
 """,
     unsafe_allow_html=True,
@@ -129,7 +145,7 @@ with st.sidebar:
         for p in cands:
             if Path(p).exists():
                 return p
-        # se nenhum existir, retorna o primeiro (para evitar exceção; Streamlit ignora se não existir)
+        # se nenhum existir, retorna o primeiro (Streamlit ignora se não existir)
         return cands[0]
 
     AGENDA_PAGE    = _first_existing("pages/4_Agendamento_de_Imagens.py", "4_Agendamento_de_Imagens.py")
