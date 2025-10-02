@@ -1,10 +1,6 @@
 # -*- coding: utf-8 -*-
 # pages/4_Agendamento_de_Imagens.py
-# 🔸 Validação de imagens com UX estilo SaaS:
-# - App bar (título + meta + ações)
-# - Cards, badges de status, barra de aviso de alterações
-# - Auto-load do último snapshot no GitHub
-# - Edição com seletor único de status, ações em lote, calendário e exportação
+# Versão completa com UX estilo SaaS + compatibilidade ampla do Streamlit
 
 from __future__ import annotations
 
@@ -21,7 +17,9 @@ import plotly.graph_objects as go
 import requests
 import streamlit as st
 
-# ======= CONFIG PÁGINA =======================================================
+# ============================================================================
+# CONFIG PÁGINA
+# ============================================================================
 st.set_page_config(
     page_title="🛰️ Agendamento de Imagens",
     page_icon="🛰️",
@@ -29,96 +27,66 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# ======= ESTILO GLOBAL (UX tipo SaaS) =======================================
+# ============================================================================
+# CSS (estilo SaaS)
+# ============================================================================
 st.markdown("""
 <style>
-/* container central mais largo */
-.reportview-container .main .block-container {max-width: 1320px; padding-top: .5rem; padding-bottom: 4rem;}
-.block-container {padding-top: .6rem !important;}
-
-/* App bar sticky */
-.appbar {position: sticky; top: 0; z-index: 50; background: #ffffffcc;
-  backdrop-filter: blur(8px); border-bottom: 1px solid #eef0f3; margin-bottom: 8px;}
+.reportview-container .main .block-container {max-width: 1320px; padding-top:.5rem; padding-bottom:4rem;}
+/* App bar */
+.appbar {position: sticky; top: 0; z-index: 50; background:#ffffffcc; backdrop-filter: blur(8px);
+  border-bottom:1px solid #eef0f3; margin-bottom:8px;}
 .appbar-inner {display:flex; align-items:center; justify-content:space-between; padding:10px 0;}
-.appbar h1 {font-size: 1.6rem; margin:0;}
-.appbar .meta {color:#6b7280; font-size: .9rem;}
-.appbar .actions {display:flex; gap:8px;}
-
+.appbar h1 {font-size:1.6rem; margin:0;}
+.appbar .meta {color:#6b7280; font-size:.9rem;}
 /* Cards */
-.card {background:#fff; border:1px solid #eef0f3; border-radius: 16px;
-  box-shadow: 0 1px 2px rgba(16,24,40,.04); padding:16px; margin: 12px 0;}
-.card h3 {margin: 0 0 8px 0; font-size: 1.1rem}
-
+.card {background:#fff; border:1px solid #eef0f3; border-radius:16px;
+  box-shadow:0 1px 2px rgba(16,24,40,.04); padding:16px; margin:12px 0;}
+.card h3 {margin:0 0 8px 0; font-size:1.1rem}
 /* Botões */
 .btn-primary {background:#1f6feb; border:1px solid #1f6feb; color:#fff;
   border-radius:10px; padding:8px 14px; font-weight:600;}
 .btn-ghost {background:#fff; border:1px solid #e5e7eb; color:#111827;
   border-radius:10px; padding:8px 14px; font-weight:600;}
-
-/* Badges (usadas fora da tabela) */
-.badge {display:inline-flex; align-items:center; padding:2px 8px;
-  border-radius:999px; font-size:12px; font-weight:600; vertical-align:middle;}
-.badge-pendente {background:#fff7ed; color:#b45309; border:1px solid #fed7aa;}
-.badge-aprovado {background:#ecfdf5; color:#166534; border:1px solid #bbf7d0;}
-.badge-rejeitado {background:#fef2f2; color:#991b1b; border:1px solid #fecaca;}
-
-/* Tabela – cabeçalho sticky */
-[data-testid="stTable"] thead tr {position: sticky; top: 48px; background: #fff; z-index: 5; box-shadow: 0 1px 0 #eef0f3;}
-
-/* Sidebar sempre aberta e sem nav padrão */
+/* Badges */
+.badge{display:inline-flex; align-items:center; padding:2px 8px; border-radius:999px;
+  font-size:12px; font-weight:600; vertical-align:middle;}
+.badge-pendente{background:#fff7ed; color:#b45309; border:1px solid #fed7aa;}
+.badge-aprovado{background:#ecfdf5; color:#166534; border:1px solid #bbf7d0;}
+.badge-rejeitado{background:#fef2f2; color:#991b1b; border:1px solid #fecaca;}
+/* Tabela: cabeçalho sticky */
+[data-testid="stTable"] thead tr {position: sticky; top: 48px; background:#fff; z-index:5; box-shadow:0 1px 0 #eef0f3;}
+/* Barra de aviso */
+.unsaved {background:#fff; border:1px solid #e5e7eb; border-radius:14px; padding:10px 14px;
+  box-shadow:0 8px 24px rgba(16,24,40,.12); display:flex; gap:10px; align-items:center;}
+/* Esconder header padrão + botão recolher */
 header[data-testid="stHeader"]{ display:none !important; }
 div[data-testid="collapsedControl"]{ display:none !important; }
-aside[data-testid="stSidebar"], section[data-testid="stSidebar"]{
-  display:block !important; visibility:visible !important; transform: translateX(0) !important;
-  min-width:300px !important; width:300px !important;}
-div[data-testid="stSidebarNav"], section[data-testid="stSidebar"] nav,
-section[data-testid="stSidebar"] [role="navigation"]{ display:none !important; }
-
-/* Logo fixo (opcional) */
-.mavipe-logo-fixed {position: fixed; top: 12px; right: 20px; z-index: 9999; pointer-events:none;}
-.mavipe-logo-fixed img {height: 100px; width: auto; opacity: .98;}
-@media (max-width: 900px){ .mavipe-logo-fixed{display:none;} }
-
-/* Barra de aviso de alterações */
-.unsaved {background:#fff; border:1px solid #e5e7eb; border-radius: 14px; padding:10px 14px;
-  box-shadow: 0 8px 24px rgba(16,24,40,.12); display:flex; gap:10px; align-items:center;}
 </style>
 """, unsafe_allow_html=True)
 
-# ======= LOGO FIXO SUPERIOR DIREITO =========================================
-def _logo_b64_from(path: str) -> str | None:
+# ============================================================================
+# LOGO FIXO SUPERIOR DIREITO (opcional)
+# ============================================================================
+def _logo_b64_from(path: str) -> Optional[str]:
     p = Path(path)
-    if not p.exists():
-        return None
+    if not p.exists(): return None
     try:
         return base64.b64encode(p.read_bytes()).decode("utf-8")
     except Exception:
         return None
 
-_LOGO_FILE = "logomavipe.jpeg"
-_LOGO_B64 = _logo_b64_from(_LOGO_FILE)
+_LOGO_B64 = _logo_b64_from("logomavipe.jpeg")
 if _LOGO_B64:
     st.markdown(f"""
-    <div class="mavipe-logo-fixed">
-        <img src="data:image/jpeg;base64,{_LOGO_B64}" alt="MAVIPE Space Systems">
+    <div style="position:fixed;top:12px;right:20px;z-index:9999;pointer-events:none">
+      <img src="data:image/jpeg;base64,{_LOGO_B64}" style="height:100px;width:auto;opacity:.98"/>
     </div>
     """, unsafe_allow_html=True)
 
-# ======= AUTH (opcional: botão Sair na sidebar) ==============================
-def _try_authenticator():
-    try:
-        import yaml
-        from yaml.loader import SafeLoader
-        import streamlit_authenticator as stauth
-        with open("auth_config.yaml", "r", encoding="utf-8") as f:
-            cfg = yaml.load(f, Loader=SafeLoader)
-        return stauth.Authenticate(
-            cfg["credentials"], cfg["cookie"]["name"], cfg["cookie"]["key"], cfg["cookie"]["expiry_days"]
-        )
-    except Exception:
-        return None
-
-# ======= FUNÇÕES GITHUB ======================================================
+# ============================================================================
+# GITHUB – utilitários
+# ============================================================================
 def _gh_headers():
     return {
         "Authorization": f"Bearer {st.secrets['github_token']}",
@@ -134,8 +102,8 @@ def _list_contents(path: str):
     r = requests.get(url, timeout=20); r.raise_for_status(); return r.json()
 
 def _list_all_xlsx(path: str) -> List[str]:
-    items = _list_contents(path); files = []
-    for it in items:
+    files: List[str] = []
+    for it in _list_contents(path):
         if it["type"] == "file" and it["name"].lower().endswith(".xlsx"):
             files.append(it["path"])
         elif it["type"] == "dir":
@@ -164,7 +132,6 @@ def gh_save_snapshot(xls_bytes: bytes, author: Optional[str] = None) -> dict:
     yyyy = now.strftime("%Y"); mm = now.strftime("%m"); stamp = now.strftime("%Y%m%d-%H%M%S")
     excel_rel_path = f"{root}/{yyyy}/{mm}/validado-{stamp}.xlsx"
     gh_put_file(excel_rel_path, xls_bytes, f"[streamlit] snapshot {stamp} (autor={author or 'anon'})", None)
-
     latest = {"saved_at_utc": now.isoformat().replace("+00:00","Z"),
               "author": author or "", "path": excel_rel_path}
     latest_path = f"{root}/latest.json"
@@ -192,18 +159,20 @@ def load_latest_snapshot_df() -> Optional[pd.DataFrame]:
         df = pd.read_excel(raw)
         keep = ["site_nome","data","status","observacao","validador","data_validacao"]
         df = df[[c for c in keep if c in df.columns]].copy()
-        df["data"] = pd.to_datetime(df["data"], errors="coerce").dt.date
+        df["data"]           = pd.to_datetime(df["data"], errors="coerce").dt.date
         df["data_validacao"] = pd.to_datetime(df.get("data_validacao", pd.NaT), errors="coerce")
-        df["observacao"] = df.get("observacao","").astype(str)
-        df["validador"]  = df.get("validador","").astype(str)
-        df["status"]     = df.get("status","Pendente").astype(str)
-        df["yyyymm"]     = pd.to_datetime(df["data"]).dt.strftime("%Y-%m")
+        df["observacao"]     = df.get("observacao","").astype(str)
+        df["validador"]      = df.get("validador","").astype(str)
+        df["status"]         = df.get("status","Pendente").astype(str)
+        df["yyyymm"]         = pd.to_datetime(df["data"]).dt.strftime("%Y-%m")
         return df.sort_values(["data","site_nome"]).reset_index(drop=True)
     except Exception as e:
         st.warning(f"Não consegui carregar o último snapshot do GitHub: {e}")
         return None
 
-# ======= AUTO-LOAD ===========================================================
+# ============================================================================
+# AUTO-LOAD ESTADO
+# ============================================================================
 if "df_validado" not in st.session_state:
     with st.spinner("Carregando último arquivo salvo no GitHub..."):
         st.session_state.df_validado = load_latest_snapshot_df()
@@ -215,24 +184,39 @@ if st.session_state.df_validado is None or st.session_state.df_validado.empty:
 
 dfv = st.session_state.df_validado
 
-# ======= SIDEBAR =============================================================
-with st.sidebar:
-    st.header("👤 Sessão")
-    auth = _try_authenticator()
-    if auth:
-        try:
-            auth.logout(location="sidebar")
-        except Exception:
-            auth.logout("Sair", "sidebar")
+# ============================================================================
+# HELPERS
+# ============================================================================
+PT_MESES = ["janeiro","fevereiro","março","abril","maio","junho","julho","agosto","setembro","outubro","novembro","dezembro"]
+def mes_label_pt(yyyymm: str) -> str:
+    y, m = yyyymm.split("-"); return f"{PT_MESES[int(m)-1].capitalize()} de {y}"
 
-    st.markdown("---")
+# Suporte a MarkdownColumn (pode não existir em versões antigas do Streamlit)
+SUPPORT_MD = hasattr(st.column_config, "MarkdownColumn")
+
+def badge_html(status: str) -> str:
+    s = (status or "").lower()
+    if "aprova" in s: return '<span class="badge badge-aprovado">Aprovada</span>'
+    if "rejei"  in s: return '<span class="badge badge-rejeitado">Rejeitada</span>'
+    return '<span class="badge badge-pendente">Pendente</span>'
+
+def badge_plain(status: str) -> str:
+    s = (status or "").lower()
+    if "aprova" in s: return "Aprovada ✅"
+    if "rejei"  in s: return "Rejeitada ⛔"
+    return "Pendente ⌛"
+
+# ============================================================================
+# SIDEBAR
+# ============================================================================
+with st.sidebar:
     st.header("📚 Módulos")
     st.page_link("pages/2_Geoportal.py", label="🗺️ Geoportal")
     st.page_link("pages/1_Estatisticas_Gerais.py", label="📊 Estatísticas gerais")
     st.page_link("pages/3_Relatorio_OGMP_2_0.py", label="📄 Relatório OGMP 2.0")
     st.page_link("pages/4_Agendamento_de_Imagens.py", label="🛰️ Agendamento de imagens", disabled=True)
-    st.markdown("---")
 
+    st.markdown("---")
     st.header("Filtros")
     sites = sorted(dfv["site_nome"].dropna().unique())
     sel_sites = st.multiselect("Sites", options=sites, default=sites)
@@ -246,114 +230,104 @@ with st.sidebar:
     autor_atual = st.text_input("Seu nome (autor do commit)", value=st.session_state.get("usuario_logado","")).strip()
     st.session_state["usuario_logado"] = autor_atual or "—"
 
-# ======= HELPERS =============================================================
-PT_MESES = ["janeiro","fevereiro","março","abril","maio","junho","julho","agosto","setembro","outubro","novembro","dezembro"]
-def mes_label_pt(yyyymm: str) -> str:
-    y, m = yyyymm.split("-"); return f"{PT_MESES[int(m)-1].capitalize()} de {y}"
-label_mes = mes_label_pt(mes_ano)
-
-def badge_html(status: str) -> str:
-    s = (status or "").lower()
-    if "aprova" in s:
-        return '<span class="badge badge-aprovado">Aprovada</span>'
-    if "rejei" in s:
-        return '<span class="badge badge-rejeitado">Rejeitada</span>'
-    return '<span class="badge badge-pendente">Pendente</span>'
-
-# ======= APP BAR =============================================================
+# ============================================================================
+# APP BAR
+# ============================================================================
 meta_html = ""
 if st.session_state.ultimo_meta:
     meta = st.session_state.ultimo_meta
     meta_html = f'Último autor: {meta.get("author","—")} · Salvo (UTC): {meta.get("saved_at_utc","")} · <code>{meta.get("path","")}</code>'
 
-appbar_col = st.container()
-with appbar_col:
-    st.markdown(f"""
-    <div class="appbar"><div class="appbar-inner">
-      <div><h1>Calendário de Validação</h1>
-        <div class="meta">{meta_html}</div></div>
-      <div class="actions">
-        <!-- Botões reais vêm logo abaixo em columns para funcionar no Streamlit -->
-      </div>
-    </div></div>
-    """, unsafe_allow_html=True)
-    # linha de botões "reais" alinhados à direita
-    c1, c2, c3 = st.columns([6,1,1])
-    with c2: refresh_clicked = st.button("Atualizar", use_container_width=True)
-    with c3: save_clicked_top = st.button("💾 Salvar alterações", type="primary", use_container_width=True)
-    if refresh_clicked:
+# desenha app bar + botões reais logo abaixo
+st.markdown(f"""
+<div class="appbar"><div class="appbar-inner">
+  <div><h1>Calendário de Validação</h1><div class="meta">{meta_html}</div></div>
+  <div class="actions"></div>
+</div></div>
+""", unsafe_allow_html=True)
+c1, c2, c3 = st.columns([6,1,1])
+with c2:
+    if st.button("Atualizar", use_container_width=True):
         st.session_state.df_validado = load_latest_snapshot_df()
         st.session_state.ultimo_meta = load_latest_meta()
         st.experimental_rerun()
+with c3:
+    save_clicked_top = st.button("💾 Salvar alterações", type="primary", use_container_width=True)
 
-# ======= DADOS FILTRADOS =====================================================
+# ============================================================================
+# DADOS FILTRADOS + LABEL
+# ============================================================================
 mask = dfv["site_nome"].isin(sel_sites) & (dfv["yyyymm"] == mes_ano)
 fdf = dfv.loc[mask].copy().sort_values(["data","site_nome"])
+label_mes = mes_label_pt(mes_ano)
 
-# ======= CARD: Tabela de passagens ==========================================
+# ============================================================================
+# CARD: TABELA
+# ============================================================================
 st.markdown(f'<div class="card"><h3>📋 Tabela de passagens — {label_mes}</h3>', unsafe_allow_html=True)
 
-# visão editável
 view = fdf[["site_nome","data","status","observacao","validador","data_validacao"]].copy()
 view["data"] = pd.to_datetime(view["data"]).dt.strftime("%Y-%m-%d")
-view["status"] = view["status"].replace({"Aprovado":"Aprovada"})  # normaliza se vier diferente
 view["observacao"] = view["observacao"].astype("string")
 view["validador"] = view["validador"].astype("string")
 view["data_validacao"] = view["data_validacao"].apply(
     lambda x: "" if pd.isna(x) else pd.to_datetime(x).strftime("%Y-%m-%d %H:%M:%S")
 ).astype("string")
 
-# coluna de badges (somente leitura) para look comercial fora do select
-view["status_badge"] = view["status"].map(lambda s: badge_html(str(s)))
+# coluna visual de status
+view["status_badge"] = view["status"].map(badge_html if SUPPORT_MD else badge_plain)
+
+# column_config dinâmico
+colcfg = {
+    "site_nome": st.column_config.TextColumn("Site", disabled=True, width="medium"),
+    "data": st.column_config.TextColumn("Data", disabled=True, width="small"),
+    "status": st.column_config.SelectboxColumn(
+        "Alterar status",
+        options=["Pendente","Aprovada","Rejeitada"],
+        required=True,
+        width="small"
+    ),
+    "observacao": st.column_config.TextColumn("Observação", width="medium"),
+    "validador": st.column_config.TextColumn("Validador", width="small"),
+    "data_validacao": st.column_config.TextColumn("Data validação", disabled=True, width="medium"),
+}
+if SUPPORT_MD:
+    colcfg["status_badge"] = st.column_config.MarkdownColumn("Status", help="Estado atual", width="small")
+else:
+    colcfg["status_badge"] = st.column_config.TextColumn("Status", disabled=True, width="small")
 
 edited = st.data_editor(
     view,
     num_rows="fixed",
     width='stretch',
-    column_config={
-        "site_nome": st.column_config.TextColumn("Site", disabled=True, width="medium"),
-        "data": st.column_config.TextColumn("Data", disabled=True, width="small"),
-        "status_badge": st.column_config.MarkdownColumn("Status", help="Estado atual", width="small"),
-        "status": st.column_config.SelectboxColumn(
-            "Alterar status",
-            options=["Pendente","Aprovada","Rejeitada"],
-            required=True,
-            width="small"
-        ),
-        "observacao": st.column_config.TextColumn("Observação", width="medium"),
-        "validador": st.column_config.TextColumn("Validador", width="small"),
-        "data_validacao": st.column_config.TextColumn("Data validação", disabled=True, width="medium"),
-    },
+    column_config=colcfg,
     disabled=["site_nome","data","status_badge","data_validacao"],
-    key="editor_agnd_v2",
+    key="editor_agnd_final",
 )
+
 st.markdown("</div>", unsafe_allow_html=True)
 
-# ======= DETECÇÃO DE ALTERAÇÕES / AVISO =====================================
+# ============================================================================
+# CONTADOR DE ALTERAÇÕES (visual)
+# ============================================================================
 def _unsaved_count(orig: pd.DataFrame, ed: pd.DataFrame) -> int:
-    # compara colunas editáveis
     a = orig[["site_nome","data","status","observacao","validador"]].copy()
     b = ed[["site_nome","data","status","observacao","validador"]].copy()
     return int((a.values != b.values).any(axis=1).sum())
 
 unsaved = _unsaved_count(view, edited)
 if unsaved > 0:
-    st.markdown(f"""
-    <div class="unsaved">
-      <strong>{unsaved}</strong> alteração(ões) não salvas.
-    </div>
-    """, unsafe_allow_html=True)
+    st.markdown(f'<div class="unsaved"><strong>{unsaved}</strong> alteração(ões) não salvas.</div>', unsafe_allow_html=True)
 
-# ======= SALVAR ==============================================================
+# ============================================================================
+# SALVAR (GitHub)
+# ============================================================================
 def _exportar_excel_bytes(df: pd.DataFrame) -> bytes:
     cols = ["site_nome","data","status","observacao","validador","data_validacao"]
-    cols = [c for c in cols if c in df.columns]
     out = df[cols].copy()
     out["data"] = pd.to_datetime(out["data"], errors="coerce").dt.strftime("%Y-%m-%d").fillna("")
     dv = pd.to_datetime(out["data_validacao"], errors="coerce")
     out["data_validacao"] = dv.dt.strftime("%Y-%m-%d %H:%M:%S").fillna("")
-    for c in set(out.columns) - {"data","data_validacao"}:
-        out[c] = out[c].fillna("").astype(str)
     buf = io.BytesIO()
     with pd.ExcelWriter(buf, engine="openpyxl") as writer:
         out.to_excel(writer, index=False, sheet_name="validacao")
@@ -364,19 +338,16 @@ def _aplicar_salvamento(edited_df: pd.DataFrame):
     e = edited_df.copy()
     e["data"] = pd.to_datetime(e["data"]).dt.date
 
-    # aplica status/observacao/validador
     keys = ["site_nome","data"]
     upd_cols = ["status","observacao","validador"]
 
     merged = base.drop(columns=["observacao","validador"], errors="ignore") \
                  .merge(e[keys + upd_cols], on=keys, how="left", suffixes=("","_novo"))
-
-    for c in ["status","observacao","validador"]:
+    for c in upd_cols:
         mask_upd = ~merged[f"{c}_novo"].isna()
         merged.loc[mask_upd, c] = merged.loc[mask_upd, f"{c}_novo"]
         merged = merged.drop(columns=[f"{c}_novo"])
 
-    # marca data_validacao quando vira Aprovada/Rejeitada e ainda está vazia
     mudou = merged["status"].isin(["Aprovada","Rejeitada"]) & merged["data_validacao"].isna()
     ts_now = dt.datetime.now(dt.timezone.utc).replace(tzinfo=None)
     merged.loc[mudou, "data_validacao"] = ts_now
@@ -385,57 +356,49 @@ def _aplicar_salvamento(edited_df: pd.DataFrame):
     st.success("Alterações salvas localmente.")
 
     try:
-        xlsb = _exportar_excel_bytes(st.session_state.df_validado)
+        xlsb = _exportar_excel_bytes(merged)
         meta = gh_save_snapshot(xlsb, author=st.session_state.get("usuario_logado",""))
         st.session_state.ultimo_meta = meta
         st.info(f"Publicado no GitHub: `{meta['path']}` (UTC: {meta['saved_at_utc']})")
     except Exception as e:
         st.warning(f"Salvou localmente, mas falhou ao publicar no GitHub: {e}")
 
-# botão principal (app bar) ou secundário (abaixo da tabela)
-save_clicked_bottom = st.button("💾 Salvar alterações", type="primary")
+save_clicked_bottom = st.button("💾 Salvar alterações")
 if save_clicked_top or save_clicked_bottom:
     _aplicar_salvamento(edited)
 
-# ======= CARD: Ações em lote + calendário ===================================
+# ============================================================================
+# CARD: AÇÕES EM LOTE + CALENDÁRIO
+# ============================================================================
 st.markdown(f'<div class="card"><h3>⚙️ Ações em lote por dia — {label_mes}</h3>', unsafe_allow_html=True)
 
 dias_disponiveis = sorted(pd.to_datetime(fdf["data"]).dt.date.unique())
 if dias_disponiveis:
     d_sel = st.selectbox("Dia", options=dias_disponiveis, format_func=lambda d: d.strftime("%Y-%m-%d"))
     cA, cB, _ = st.columns([1,1,6])
+
+    def _lote(status_final: str, msg_ok: str):
+        base = st.session_state.df_validado
+        idx = (pd.to_datetime(base["data"]).dt.date == d_sel) & base["site_nome"].isin(sel_sites) & (base["yyyymm"] == mes_ano)
+        base.loc[idx, "status"] = status_final
+        ts_now = dt.datetime.now(dt.timezone.utc).replace(tzinfo=None)
+        base.loc[idx & base["data_validacao"].isna(), "data_validacao"] = ts_now
+        st.session_state.df_validado = base
+        st.success(f"{msg_ok} em {d_sel}.")
+        try:
+            xlsb = _exportar_excel_bytes(base)
+            meta = gh_save_snapshot(xlsb, author=st.session_state.get("usuario_logado",""))
+            st.session_state.ultimo_meta = meta
+            st.info(f"Publicado no GitHub: `{meta['path']}`")
+        except Exception as e:
+            st.warning(f"Falhou ao publicar no GitHub: {e}")
+
     with cA:
         if st.button("✅ Aprovar tudo do dia"):
-            base = st.session_state.df_validado
-            idx = (pd.to_datetime(base["data"]).dt.date == d_sel) & base["site_nome"].isin(sel_sites) & (base["yyyymm"] == mes_ano)
-            base.loc[idx, "status"] = "Aprovada"
-            ts_now = dt.datetime.now(dt.timezone.utc).replace(tzinfo=None)
-            base.loc[idx & base["data_validacao"].isna(), "data_validacao"] = ts_now
-            st.session_state.df_validado = base
-            st.success(f"Aprovado tudo em {d_sel}.")
-            try:
-                xlsb = _exportar_excel_bytes(st.session_state.df_validado)
-                meta = gh_save_snapshot(xlsb, author=st.session_state.get("usuario_logado",""))
-                st.session_state.ultimo_meta = meta
-                st.info(f"Publicado no GitHub: `{meta['path']}`")
-            except Exception as e:
-                st.warning(f"Falhou ao publicar no GitHub: {e}")
+            _lote("Aprovada", "Aprovado tudo")
     with cB:
         if st.button("⛔ Rejeitar tudo do dia"):
-            base = st.session_state.df_validado
-            idx = (pd.to_datetime(base["data"]).dt.date == d_sel) & base["site_nome"].isin(sel_sites) & (base["yyyymm"] == mes_ano)
-            base.loc[idx, "status"] = "Rejeitada"
-            ts_now = dt.datetime.now(dt.timezone.utc).replace(tzinfo=None)
-            base.loc[idx & base["data_validacao"].isna(), "data_validacao"] = ts_now
-            st.session_state.df_validado = base
-            st.success(f"Rejeitado tudo em {d_sel}.")
-            try:
-                xlsb = _exportar_excel_bytes(st.session_state.df_validado)
-                meta = gh_save_snapshot(xlsb, author=st.session_state.get("usuario_logado",""))
-                st.session_state.ultimo_meta = meta
-                st.info(f"Publicado no GitHub: `{meta['path']}`")
-            except Exception as e:
-                st.warning(f"Falhou ao publicar no GitHub: {e}")
+            _lote("Rejeitada", "Rejeitado tudo")
 else:
     st.caption("Sem passagens no mês/site(s) filtrados.")
 
@@ -521,7 +484,9 @@ st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
 
 st.markdown("</div>", unsafe_allow_html=True)  # fecha card
 
-# ======= CARD: Exportar / Diagnóstico =======================================
+# ============================================================================
+# CARD: EXPORTAR / DIAGNÓSTICO
+# ============================================================================
 st.markdown('<div class="card"><h3>⬇️ Exportar arquivo validado</h3>', unsafe_allow_html=True)
 colA, colB = st.columns([1,2])
 with colA:
