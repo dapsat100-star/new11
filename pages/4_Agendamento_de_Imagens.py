@@ -55,7 +55,7 @@ if _LOGO_B64:
             pointer-events: none; /* não bloqueia cliques abaixo */
         }}
         .mavipe-logo-fixed img {{
-            height: 60px;   /* ajuste de tamanho do logo */
+            height: 100px;   /* ajuste de tamanho do logo */
             width: auto;
             opacity: 0.98;
         }}
