@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 # pages/4_Agendamento_de_Imagens.py
-# UX estilo SaaS + Sidebar fixa + contornos visíveis nos filtros
-# Compat Streamlit (st.rerun / experimental), ações em lote, calendário
+# UX estilo SaaS + Sidebar fixa + filtros com contorno visível
+# Fluxo de salvamento simplificado (1 botão), auto-refresh após salvar
 # GitHub com token + fallback via latest.json + cache simples
-# Correção de merge/salvamento (evita KeyError) e uso de openpyxl
+# Correção de merge/salvamento e uso de openpyxl
 
 from __future__ import annotations
 
@@ -77,13 +77,6 @@ div[data-testid="stSidebarNav"] { display: none !important; }
   border-radius:10px; padding:8px 14px; font-weight:600;}
 .btn-ghost {background:#fff; border:1px solid #e5e7eb; color:#111827;
   border-radius:10px; padding:8px 14px; font-weight:600;}
-
-/* Badges */
-.badge{display:inline-flex; align-items:center; padding:2px 8px; border-radius:999px;
-  font-size:12px; font-weight:600; vertical-align:middle;}
-.badge-pendente{background:#fff7ed; color:#b45309; border:1px solid #fed7aa;}
-.badge-aprovado{background:#ecfdf5; color:#166534; border:1px solid #bbf7d0;}
-.badge-rejeitado{background:#fef2f2; color:#991b1b; border:1px solid #fecaca;}
 
 /* Tabela: cabeçalho sticky */
 [data-testid="stTable"] thead tr {position: sticky; top: 48px; background:#fff; z-index:5; box-shadow:0 1px 0 #eef0f3;}
@@ -321,19 +314,9 @@ PT_MESES = ["janeiro","fevereiro","março","abril","maio","junho","julho","agost
 def mes_label_pt(yyyymm: str) -> str:
     y, m = yyyymm.split("-"); return f"{PT_MESES[int(m)-1].capitalize()} de {y}"
 
-SUPPORT_MD = hasattr(st.column_config, "MarkdownColumn")
-
-def badge_html(status: str) -> str:
-    s = (status or "").lower()
-    if "aprova" in s: return '<span class="badge badge-aprovado">Aprovada</span>'
-    if "rejei"  in s: return '<span class="badge badge-rejeitado">Rejeitada</span>'
-    return '<span class="badge badge-pendente">Pendente</span>'
-
-def badge_plain(status: str) -> str:
-    s = (status or "").lower()
-    if "aprova" in s: return "Aprovada ✅"
-    if "rejei"  in s: return "Rejeitada ⛔"
-    return "Pendente ⌛"
+def _editor_key(sites: list[str], mes: str) -> str:
+    # Gera uma chave estável por filtro para resetar o editor quando os filtros mudam
+    return f"ed_{mes}_{abs(hash(tuple(sites)))%100000}"
 
 # ============================================================================
 # SIDEBAR (conteúdo)
@@ -360,10 +343,10 @@ with st.sidebar:
     st.session_state["usuario_logado"] = autor_atual or "—"
 
 # ============================================================================
-# APP BAR
+# APP BAR (meta)
 # ============================================================================
 meta_html = ""
-if st.session_state.ultimo_meta:
+if st.session_state.get("ultimo_meta"):
     meta = st.session_state.ultimo_meta
     meta_html = f'Último autor: {meta.get("author","—")} · Salvo (UTC): {meta.get("saved_at_utc","")} · <code>{meta.get("path","")}</code>'
 
@@ -374,14 +357,9 @@ st.markdown(f"""
 </div></div>
 """, unsafe_allow_html=True)
 
-c1, c2, c3 = st.columns([6,1,1])
-with c2:
-    if st.button("Atualizar", use_container_width=True):
-        st.session_state.df_validado = load_latest_snapshot_df()
-        st.session_state.ultimo_meta = load_latest_meta()
-        _rerun()
-with c3:
-    save_clicked_top = st.button("💾 Salvar alterações", type="primary", use_container_width=True)
+# Mensagem pós-salvamento (mostra após rerun)
+if st.session_state.get("__last_save_ok"):
+    st.success(st.session_state.pop("__last_save_ok"))
 
 # ============================================================================
 # DADOS FILTRADOS
@@ -402,13 +380,12 @@ view["validador"] = view["validador"].astype("string")
 view["data_validacao"] = view["data_validacao"].apply(
     lambda x: "" if pd.isna(x) else pd.to_datetime(x).strftime("%Y-%m-%d %H:%M:%S")
 ).astype("string")
-view["status_badge"] = view["status"].map(badge_html if SUPPORT_MD else badge_plain)
 
 colcfg = {
     "site_nome": st.column_config.TextColumn("Site", disabled=True, width="medium"),
     "data": st.column_config.TextColumn("Data", disabled=True, width="small"),
     "status": st.column_config.SelectboxColumn(
-        "Alterar status",
+        "Status",
         options=["Pendente","Aprovada","Rejeitada"],
         required=True,
         width="small"
@@ -417,36 +394,35 @@ colcfg = {
     "validador": st.column_config.TextColumn("Validador", width="small"),
     "data_validacao": st.column_config.TextColumn("Data validação", disabled=True, width="medium"),
 }
-if SUPPORT_MD:
-    colcfg["status_badge"] = st.column_config.MarkdownColumn("Status", help="Estado atual", width="small")
-else:
-    colcfg["status_badge"] = st.column_config.TextColumn("Status", disabled=True, width="small")
 
+editor_key = _editor_key(sel_sites, mes_ano)
 edited = st.data_editor(
     view,
     num_rows="fixed",
     width='stretch',
     column_config=colcfg,
-    disabled=["site_nome","data","status_badge","data_validacao"],
-    key="editor_agnd_final",
+    disabled=["site_nome","data","data_validacao"],
+    key=editor_key,
 )
 
 st.markdown("</div>", unsafe_allow_html=True)
 
 # ============================================================================
-# CONTADOR DE ALTERAÇÕES (visual)
+# DETECTA ALTERAÇÕES
 # ============================================================================
-def _unsaved_count(orig: pd.DataFrame, ed: pd.DataFrame) -> int:
+def _unsaved_mask(orig: pd.DataFrame, ed: pd.DataFrame) -> pd.Series:
     a = orig[["site_nome","data","status","observacao","validador"]].copy()
     b = ed[["site_nome","data","status","observacao","validador"]].copy()
-    return int((a.values != b.values).any(axis=1).sum())
+    return (a.values != b.values).any(axis=1)
 
-unsaved = _unsaved_count(view, edited)
+changed_mask = _unsaved_mask(view, edited)
+unsaved = int(changed_mask.sum())
+
 if unsaved > 0:
     st.markdown(f'<div class="unsaved"><strong>{unsaved}</strong> alteração(ões) não salvas.</div>', unsafe_allow_html=True)
 
 # ============================================================================
-# SALVAR (GitHub) — corrigido para evitar KeyError
+# SALVAR (GitHub) — uma única action clara + refresh automático
 # ============================================================================
 def _exportar_excel_bytes(df: pd.DataFrame) -> bytes:
     cols = ["site_nome","data","status","observacao","validador","data_validacao"]
@@ -467,10 +443,7 @@ def _aplicar_salvamento(edited_df: pd.DataFrame):
     keys = ["site_nome","data"]
     upd_cols = ["status","observacao","validador"]
 
-    # NÃO removemos colunas do base; garantimos sufixos para TODOS os campos
     merged = base.merge(e[keys + upd_cols], on=keys, how="left", suffixes=("", "_novo"))
-
-    # aplica valor de *_novo quando existir e não for NaN
     for c in upd_cols:
         c_new = f"{c}_novo"
         if c_new in merged.columns:
@@ -478,24 +451,25 @@ def _aplicar_salvamento(edited_df: pd.DataFrame):
             merged.loc[mask_upd, c] = merged.loc[mask_upd, c_new]
             merged.drop(columns=[c_new], inplace=True, errors="ignore")
 
-    # marca data_validacao quando vira Aprovada/Rejeitada e estava vazia
     mudou = merged["status"].isin(["Aprovada","Rejeitada"]) & merged["data_validacao"].isna()
     ts_now = dt.datetime.now(dt.timezone.utc).replace(tzinfo=None)
     merged.loc[mudou, "data_validacao"] = ts_now
 
     st.session_state.df_validado = merged
-    st.success("Alterações salvas localmente.")
 
     try:
         xlsb = _exportar_excel_bytes(merged)
         meta = gh_save_snapshot(xlsb, author=st.session_state.get("usuario_logado",""))
         st.session_state.ultimo_meta = meta
-        st.info(f"Publicado no GitHub: `{meta['path']}` (UTC: {meta['saved_at_utc']})")
+        st.session_state["__last_save_ok"] = f"Publicado no GitHub: `{meta['path']}` (UTC: {meta['saved_at_utc']})"
     except Exception as e:
-        st.warning(f"Salvou localmente, mas falhou ao publicar no GitHub: {e}")
+        st.session_state["__last_save_ok"] = f"Salvou localmente, mas falhou ao publicar no GitHub: {e}"
 
-save_clicked_bottom = st.button("💾 Salvar alterações")
-if save_clicked_top or save_clicked_bottom:
+    _rerun()
+
+# Único botão de salvar (desabilitado sem mudanças)
+save_clicked = st.button("💾 Salvar alterações", type="primary", disabled=(unsaved == 0))
+if save_clicked:
     _aplicar_salvamento(edited)
 
 # ============================================================================
@@ -515,14 +489,14 @@ if dias_disponiveis:
         ts_now = dt.datetime.now(dt.timezone.utc).replace(tzinfo=None)
         base.loc[idx & base["data_validacao"].isna(), "data_validacao"] = ts_now
         st.session_state.df_validado = base
-        st.success(f"{msg_ok} em {d_sel}.")
         try:
             xlsb = _exportar_excel_bytes(base)
             meta = gh_save_snapshot(xlsb, author=st.session_state.get("usuario_logado",""))
             st.session_state.ultimo_meta = meta
-            st.info(f"Publicado no GitHub: `{meta['path']}`")
+            st.session_state["__last_save_ok"] = f"{msg_ok} em {d_sel}. Publicado: `{meta['path']}`"
         except Exception as e:
-            st.warning(f"Falhou ao publicar no GitHub: {e}")
+            st.session_state["__last_save_ok"] = f"{msg_ok} em {d_sel}. Falhou ao publicar no GitHub: {e}"
+        _rerun()
 
     with cA:
         if st.button("✅ Aprovar tudo do dia"):
@@ -568,7 +542,7 @@ def montar_calendario(df_mes: pd.DataFrame, mes_ano: str,
     week = 0
     for d in dias:
         col = weekday_dom(d)
-        if col == 0 and d.day != 1:
+        if col == 0 e d.day != 1:
             week += 1
         grid[week, col] = d
 
@@ -642,4 +616,3 @@ with st.expander("🔧 Diagnóstico GitHub", expanded=False):
         st.session_state.df_validado = load_latest_snapshot_df()
         st.session_state.ultimo_meta = load_latest_meta()
         _rerun()
-
