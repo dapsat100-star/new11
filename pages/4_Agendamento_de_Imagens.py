@@ -1,7 +1,10 @@
- # -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 # pages/4_Agendamento_de_Imagens.py
-# Adaptado do app "Calendário de Passagens – Validação"
-# Integra com autenticação, sidebar fixa e navegação do seu app multipágina.
+# Integra o seu app "Calendário de Passagens – Validação" ao multipáginas:
+# - Sidebar sempre aberta (sem botão de colapsar)
+# - Logout via streamlit_authenticator
+# - Links para Geoportal / Relatório / Estatísticas
+# - Escrita de Excel usando openpyxl (sem xlsxwriter)
 
 import io
 from typing import Dict, List, Optional
@@ -288,6 +291,14 @@ def normalizar_planilha_matriz(df_raw: pd.DataFrame, col_site: Optional[str] = N
     df_expl["yyyymm"] = pd.to_datetime(df_expl["data"]).dt.strftime("%Y-%m")
     return df_expl.sort_values(["data", "site_nome"]).reset_index(drop=True)
 
+# ========= Helper p/ escrever Excel com openpyxl (sem xlsxwriter) =========
+def write_excel_bytes(df: pd.DataFrame) -> bytes:
+    buf = io.BytesIO()
+    with pd.ExcelWriter(buf, engine="openpyxl") as writer:
+        df.to_excel(writer, index=False, sheet_name="validacao")
+    buf.seek(0)
+    return buf.read()
+
 # ===== Entrada (upload / url / exemplo) =====
 with st.expander("📥 Carregar planilha", expanded=True):
     c1, c2 = st.columns([2,1])
@@ -390,6 +401,7 @@ with col_save2:
 if st.session_state.temp_edits is None or not edited.equals(st.session_state.temp_edits):
     st.session_state.temp_edits = edited.copy()
 
+# ===== Export helpers (openpyxl) =====
 def exportar_excel(df: pd.DataFrame) -> bytes:
     cols = ["site_nome", "data", "status", "observacao", "validador", "data_validacao"]
     cols = [c for c in cols if c in df.columns]
@@ -399,10 +411,18 @@ def exportar_excel(df: pd.DataFrame) -> bytes:
     df_exp["data_validacao"] = dv.dt.strftime("%Y-%m-%d %H:%M:%S").fillna("")
     for c in set(df_exp.columns) - {"data", "data_validacao"}:
         df_exp[c] = df_exp[c].fillna("").astype(str)
-    buf = io.BytesIO()
-    with pd.ExcelWriter(buf, engine="xlsxwriter") as writer:
-        df_exp.to_excel(writer, index=False, sheet_name="validacao")
-    buf.seek(0); return buf.read()
+    return write_excel_bytes(df_exp)
+
+def exportar_excel_full(df: pd.DataFrame) -> bytes:
+    cols = ["site_nome", "data", "status", "observacao", "validador", "data_validacao"]
+    cols = [c for c in cols if c in df.columns]
+    df_exp = df[cols].copy()
+    df_exp["data"] = pd.to_datetime(df_exp["data"], errors="coerce").dt.strftime("%Y-%m-%d").fillna("")
+    dv = pd.to_datetime(df_exp["data_validacao"], errors="coerce")
+    df_exp["data_validacao"] = dv.dt.strftime("%Y-%m-%d %H:%M:%S").fillna("")
+    for c in set(df_exp.columns) - {"data", "data_validacao"}:
+        df_exp[c] = df_exp[c].fillna("").astype(str)
+    return write_excel_bytes(df_exp)
 
 if save_clicked:
     base = st.session_state.df_validado
@@ -552,21 +572,6 @@ st.markdown("---"); st.subheader("Exportar")
 colA, colB = st.columns([1,2])
 with colA: nome_arquivo = st.text_input("Nome do arquivo", value="passagens_validado.xlsx")
 with colB:
-    # export seguro (mesmo formato dos snapshots)
-    def exportar_excel_full(df: pd.DataFrame) -> bytes:
-        cols = ["site_nome", "data", "status", "observacao", "validador", "data_validacao"]
-        cols = [c for c in cols if c in df.columns]
-        df_exp = df[cols].copy()
-        df_exp["data"] = pd.to_datetime(df_exp["data"], errors="coerce").dt.strftime("%Y-%m-%d").fillna("")
-        dv = pd.to_datetime(df_exp["data_validacao"], errors="coerce")
-        df_exp["data_validacao"] = dv.dt.strftime("%Y-%m-%d %H:%M:%S").fillna("")
-        for c in set(df_exp.columns) - {"data", "data_validacao"}:
-            df_exp[c] = df_exp[c].fillna("").astype(str)
-        buf = io.BytesIO()
-        with pd.ExcelWriter(buf, engine="xlsxwriter") as writer:
-            df_exp.to_excel(writer, index=False, sheet_name="validacao")
-        buf.seek(0)
-        return buf.read()
     xlsb = exportar_excel_full(st.session_state.df_validado)
     st.download_button("Baixar Excel validado", data=xlsb, file_name=nome_arquivo,
                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
@@ -599,4 +604,3 @@ with st.expander("🔧 Diagnóstico GitHub", expanded=False):
                 st.error("❌ Não consegui gravar. Veja o JSON acima (repo/branch/token).")
         except Exception as e:
             st.exception(e)
-
