@@ -11,6 +11,7 @@ import io
 import json
 import time
 import base64
+import os
 import datetime as dt
 from pathlib import Path
 from typing import Optional, List, Dict
@@ -20,6 +21,13 @@ import pandas as pd
 import plotly.graph_objects as go
 import requests
 import streamlit as st
+
+# ==== Guard de sessão (aceita app novo e legado) ====
+_is_auth = bool(st.session_state.get("user")) or bool(st.session_state.get("authentication_status"))
+if not _is_auth:
+    st.warning("Sessão expirada ou não autenticada.")
+    st.page_link("app.py", label="🔐 Voltar à página de login")
+    st.stop()
 
 # ============================================================================
 # CONFIG PÁGINA
@@ -72,12 +80,6 @@ div[data-testid="stSidebarNav"] { display: none !important; }
   box-shadow:0 1px 2px rgba(16,24,40,.04); padding:16px; margin:12px 0;}
 .card h3 {margin:0 0 8px 0; font-size:1.1rem}
 
-/* Botões */
-.btn-primary {background:#1f6feb; border:1px solid #1f6feb; color:#fff;
-  border-radius:10px; padding:8px 14px; font-weight:600;}
-.btn-ghost {background:#fff; border:1px solid #e5e7eb; color:#111827;
-  border-radius:10px; padding:8px 14px; font-weight:600;}
-
 /* Tabela: cabeçalho sticky */
 [data-testid="stTable"] thead tr {position: sticky; top: 48px; background:#fff; z-index:5; box-shadow:0 1px 0 #eef0f3;}
 
@@ -90,11 +92,11 @@ header[data-testid="stHeader"]{ display:none !important; }
 
 /* ===== Sidebar: inputs/chips com contornos visíveis ===== */
 section[data-testid="stSidebar"] {
-  --sb-border: #d1d5db;         /* cinza da borda */
-  --sb-border-strong: #9ca3af;  /* hover */
-  --sb-bg: #fafafa;             /* fundo do campo */
-  --sb-bg-focus: #ffffff;       /* foco */
-  --sb-focus-ring: rgba(31,111,235,.18); /* anel de foco azul */
+  --sb-border: #d1d5db;
+  --sb-border-strong: #9ca3af;
+  --sb-bg: #fafafa;
+  --sb-bg-focus: #ffffff;
+  --sb-focus-ring: rgba(31,111,235,.18);
 }
 section[data-testid="stSidebar"] div[data-baseweb="select"] > div {
   border: 1.5px solid var(--sb-border) !important;
@@ -156,18 +158,42 @@ if _LOGO_B64:
     """, unsafe_allow_html=True)
 
 # ============================================================================
-# GITHUB utils (token + fallback + cache)
+# GITHUB utils (token + fallback + cache) — compatível com nomes antigos/novos
 # ============================================================================
-def _gh_headers() -> Dict[str, str]:
-    headers = {"Accept": "application/vnd.github+json"}
-    token = st.secrets.get("github_token")
-    if token:
-        headers["Authorization"] = f"Bearer {token}"
-    return headers
+def _conf_get(*keys, default: str = "") -> str:
+    """Procura na ordem: os.environ -> st.secrets, aceitando vários aliases."""
+    for k in keys:
+        v = os.getenv(k)
+        if v:
+            return str(v)
+        try:
+            v = st.secrets.get(k)
+            if v:
+                return str(v)
+        except Exception:
+            pass
+    return default
 
-def _gh_repo():   return st.secrets["github_repo"]
-def _gh_branch(): return st.secrets.get("github_branch", "main")
-def _gh_root():   return st.secrets.get("gh_data_root", "data/validado")
+def _gh_token() -> str:
+    return _conf_get("GITHUB_TOKEN", "github_token")
+
+def _gh_repo() -> str:
+    # novo nome: REPO_CRONOGRAMA; antigo: github_repo
+    return _conf_get("REPO_CRONOGRAMA", "github_repo")
+
+def _gh_branch() -> str:
+    return _conf_get("GITHUB_BRANCH", "github_branch", default="main")
+
+def _gh_root() -> str:
+    # novo: GH_DATA_ROOT; antigos: gh_data_root | data_root
+    return _conf_get("GH_DATA_ROOT", "gh_data_root", "data_root", default="data/validado")
+
+def _gh_headers() -> Dict[str, str]:
+    h = {"Accept": "application/vnd.github+json"}
+    tok = _gh_token()
+    if tok:
+        h["Authorization"] = f"Bearer {tok}"
+    return h
 
 def _list_contents(path: str):
     url = f"https://api.github.com/repos/{_gh_repo()}/contents/{path}?ref={_gh_branch()}"
@@ -306,6 +332,12 @@ def _editor_key(sites: List[str], mes: str) -> str:
 # SIDEBAR
 # ============================================================================
 with st.sidebar:
+    st.success(f"Logado como: {st.session_state.get('name') or st.session_state.get('username') or st.session_state.get('user')}")
+    if st.button("Sair", use_container_width=True):
+        st.session_state.clear()
+        st.switch_page("app.py")
+    st.markdown("---")
+
     st.header("📚 Módulos")
     st.page_link("pages/2_Geoportal.py", label="🗺️ Geoportal")
     st.page_link("pages/1_Estatisticas_Gerais.py", label="📊 Estatísticas gerais")
@@ -581,17 +613,17 @@ with colB:
 st.markdown("</div>", unsafe_allow_html=True)
 
 with st.expander("🔧 Diagnóstico GitHub", expanded=False):
-    has_token  = "github_token"  in st.secrets
-    has_repo   = "github_repo"   in st.secrets
-    has_branch = "github_branch" in st.secrets
-    has_root   = "gh_data_root"  in st.secrets
-    st.write("Secrets:", {"github_token": has_token, "github_repo": has_repo,
-                          "github_branch": has_branch, "gh_data_root": has_root})
-    if has_repo:   st.write("Repo:", st.secrets["github_repo"])
-    if has_branch: st.write("Branch:", st.secrets["github_branch"])
-    if has_root:   st.write("Raiz:", st.secrets["gh_data_root"])
+    snap = {
+        "GITHUB_TOKEN|github_token": bool(_gh_token()),
+        "REPO_CRONOGRAMA|github_repo": bool(_gh_repo()),
+        "GITHUB_BRANCH|github_branch": bool(_gh_branch()),
+        "GH_DATA_ROOT|gh_data_root|data_root": bool(_gh_root()),
+    }
+    st.write("Config detectada:", snap)
+    st.write("Repo:", _gh_repo())
+    st.write("Branch:", _gh_branch())
+    st.write("Raiz:", _gh_root())
     if st.button("🔄 Recarregar último snapshot do GitHub"):
         st.session_state.df_validado = load_latest_snapshot_df()
         st.session_state.ultimo_meta = load_latest_meta()
         _rerun()
-
