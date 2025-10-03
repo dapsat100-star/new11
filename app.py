@@ -25,109 +25,55 @@ st.set_page_config(
 load_dotenv()
 
 # ============================================================================
-# Seletor de idioma (bandeiras SVG) sem navegação
+# Seletor de idioma (bandeiras SVG) — simples e estável (links ?lang=pt|en)
 #   - exige arquivos 'br.svg' e 'gb.svg' na RAIZ do app
 # ============================================================================
 if "lang" not in st.session_state:
     st.session_state.lang = "pt"
 
-# Aceitamos ?lang=pt|en (sem warnings; usa API nova)
-qp = st.query_params
-if "lang" in qp and qp["lang"] in ("pt", "en"):
-    st.session_state.lang = qp["lang"]
+# usa API nova (sem warnings)
+if "lang" in st.query_params and st.query_params["lang"] in ("pt", "en"):
+    st.session_state.lang = st.query_params["lang"]
 
 def _img_b64(path: str) -> str:
     p = Path(path)
     mime = "image/svg+xml" if p.suffix.lower()==".svg" else "image/png"
     return f"data:{mime};base64," + base64.b64encode(p.read_bytes()).decode("ascii")
 
-# bandeiras da raiz
+# Bandeiras (arquivos na raiz)
 BR = _img_b64("br.svg")
 GB = _img_b64("gb.svg")
 
-# CSS pílula + botões invisíveis do Streamlit
+is_pt = (st.session_state.lang == "pt")
+
+# Pílula fixa com links (reload rápido e estável, sem JS)
 st.markdown(f"""
 <style>
-/* pílula fixa com as bandeiras */
 .lang-pill {{
-  position: fixed; top: 16px; left: 16px; z-index: 9999;
-  display: inline-flex; gap: 8px; align-items: center;
+  position: fixed; top: 14px; left: 14px; z-index: 9999;
+  display: inline-flex; align-items: center; gap: 10px;
   background: #fff; border: 1px solid #e5e7eb; border-radius: 999px;
   padding: 6px 10px; box-shadow: 0 8px 20px rgba(0,0,0,.08);
 }}
-.lang-btn {{
-  all: unset; cursor: pointer;
-  width: 26px; height: 20px; border-radius: 4px;
-  background-size: cover; background-position: center; opacity:.85;
-  transition: opacity .15s ease, outline-color .15s ease;
+.lang-pill a {{
+  display: inline-block; width: 26px; height: 20px;
+  background-size: cover; background-position: center;
+  border-radius: 4px; opacity: .85; transition: opacity .15s, outline-color .15s;
   outline: 2px solid transparent; outline-offset: 2px;
 }}
-.lang-btn:hover {{ opacity: 1; }}
-.lang-btn.active {{ outline-color: #1f6feb; opacity: 1; }}
-#btn-pt {{ background-image: url('{BR}'); }}
-#btn-en {{ background-image: url('{GB}'); }}
-
-/* escondemos os botões reais de Streamlit que recebem o clique via JS */
-div[data-testid="stButton"] > button[k="__pt_click__"],
-div[data-testid="stButton"] > button[k="__en_click__"] {{
-  display: none !important;
+.lang-pill a:hover {{ opacity: 1; }}
+.lang-pill a.active {{ outline-color: #1f6feb; opacity: 1; }}
+.lang-pill .divider {{
+  width: 1px; height: 16px; background: #e5e7eb; display: inline-block;
 }}
 </style>
+
+<div class="lang-pill">
+  <a href="?lang=pt" class="{ 'active' if is_pt else '' }" style="background-image: url('{BR}');" title="Português"></a>
+  <span class="divider"></span>
+  <a href="?lang=en" class="{ '' if is_pt else 'active' }" style="background-image: url('{GB}');" title="English"></a>
+</div>
 """, unsafe_allow_html=True)
-
-# desenha a pílula
-st.markdown(
-    """
-    <div class="lang-pill">
-      <button id="btn-pt" class="lang-btn"></button>
-      <button id="btn-en" class="lang-btn"></button>
-    </div>
-    """,
-    unsafe_allow_html=True
-)
-
-# cria botões invisíveis (alvos do clique via JS) e altera sessão
-col_pt, col_en = st.columns([1,1])
-with col_pt:
-    if st.button("pt_flag_click", key="__pt_click__", help="Português"):
-        st.session_state.lang = "pt"
-        # opcional: refletir na URL sem navegação:
-        st.query_params["lang"] = "pt"
-        st.rerun()
-with col_en:
-    if st.button("en_flag_click", key="__en_click__", help="English"):
-        st.session_state.lang = "en"
-        st.query_params["lang"] = "en"
-        st.rerun()
-
-# ativa a borda na bandeira certa e liga os cliques
-active_lang = st.session_state.lang
-st.markdown(
-    f"""
-    <script>
-    const doc = window.parent.document;
-    const pt = doc.getElementById("btn-pt");
-    const en = doc.getElementById("btn-en");
-    if (pt && en) {{
-      pt.classList.remove("active");
-      en.classList.remove("active");
-      {"pt.classList.add('active');" if active_lang=="pt" else "en.classList.add('active');"}
-      // envia clique para os st.button invisíveis
-      const clickPT = () => {{
-        const btn = Array.from(doc.querySelectorAll('button')).find(b => b.getAttribute('k')==="__pt_click__");
-        if (btn) btn.click();
-      }};
-      const clickEN = () => {{
-        const btn = Array.from(doc.querySelectorAll('button')).find(b => b.getAttribute('k')==="__en_click__");
-        if (btn) btn.click();
-      }};
-      pt.onclick = clickPT;
-      en.onclick = clickEN;
-    }}
-    </script>
-    """,
-    unsafe_allow_html=True
-)
 
 # ============================================================================
 # Textos PT/EN
@@ -198,7 +144,6 @@ TXT = {
     "about_link": "https://dapsat.com/",
   }
 }
-is_pt = (st.session_state.lang == "pt")
 t = TXT["pt" if is_pt else "en"]
 
 # ============================================================================
@@ -256,7 +201,6 @@ HEADERS = {"Accept": "application/vnd.github+json"}
 if GITHUB_TOKEN:
     HEADERS["Authorization"] = f"Bearer {GITHUB_TOKEN}"
 
-
 def _gh_open_json(repo: str, path: str) -> Tuple[Dict[str, Any], Optional[str]]:
     if not repo:
         return {}, None
@@ -267,7 +211,6 @@ def _gh_open_json(repo: str, path: str) -> Tuple[Dict[str, Any], Optional[str]]:
         content = base64.b64decode(payload["content"]).decode("utf-8")
         return json.loads(content), payload.get("sha")
     return {}, None
-
 
 def _gh_save_json(repo: str, path: str, content: dict, message: str, sha: Optional[str]) -> bool:
     if not repo:
@@ -283,14 +226,11 @@ def _gh_save_json(repo: str, path: str, content: dict, message: str, sha: Option
     r = requests.put(url, headers=HEADERS, json=payload, timeout=30)
     return r.status_code in (200, 201)
 
-
 def load_users():
     return _gh_open_json(REPO_USERS, USERS_FILE)
 
-
 def save_users(data, message, sha):
     return _gh_save_json(REPO_USERS, USERS_FILE, data, message, sha)
-
 
 # ============================================================================
 # Password helpers
@@ -301,10 +241,8 @@ def check_password(plain: str, hashed: str) -> bool:
     except Exception:
         return False
 
-
 def hash_password(plain: str) -> str:
     return bcrypt.hashpw(plain.encode(), bcrypt.gensalt()).decode()
-
 
 # ============================================================================
 # Layout principal (hero + login)
@@ -340,7 +278,7 @@ with left:
 with right:
     st.markdown("<div id='login' class='login-card'>", unsafe_allow_html=True)
     st.subheader(t["secure_access"])
-    # (Removido warning visual de secrets para não poluir a UI)
+    # (Removido st.warning amarelo sobre secrets — pedido do usuário)
     username = st.text_input(t["username"])
     password = st.text_input(t["password"], type="password")
     c1, c2 = st.columns([1,1])
@@ -366,7 +304,7 @@ if login_btn:
         st.session_state["users_cfg"] = users_cfg
         st.session_state["authentication_status"] = True
         st.toast(t["login_ok"], icon="✅")
-        st.rerun()
+        st.experimental_rerun()
 
 # ============================================================================
 # Troca obrigatória de senha (primeiro acesso)
@@ -386,7 +324,7 @@ if st.session_state.get("user") and st.session_state.get("must_change"):
             if save_users(st.session_state["users_cfg"], f"Password change for {st.session_state['user']}", st.session_state["users_sha"]):
                 st.success(t["pwd_changed"])
                 st.session_state["must_change"] = False
-                st.rerun()
+                st.experimental_rerun()
         else:
             st.error(t["pwd_change_error"])
 
@@ -415,9 +353,9 @@ if st.session_state.get("authentication_status") and not st.session_state.get("m
 
     if st.sidebar.button("Sair"):
         st.session_state.clear()
-        st.rerun()
+        st.experimental_rerun()
 
-    # Redireciona na 1ª vez para o Geoportal (se existir)
+    # Redireciona 1ª vez para o Geoportal (se existir)
     if not st.session_state.get("redirected_to_geoportal"):
         st.session_state["redirected_to_geoportal"] = True
         target = GEO_PAGE or AGENDA_PAGE or RELATORIO_PAGE or ESTATS_PAGE
@@ -438,4 +376,5 @@ st.markdown(f"""
   <a href="https://example.com/privacidade" target="_blank">{t["privacy"]}</a>
 </div>
 """, unsafe_allow_html=True)
+
 
