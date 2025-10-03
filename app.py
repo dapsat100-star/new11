@@ -30,7 +30,7 @@ load_dotenv()
 if "lang" not in st.session_state:
     st.session_state.lang = "pt"
 
-params = st.experimental_get_query_params()
+params = st.query_params
 if "lang" in params:
     _lang = (params["lang"][0] or "").lower()
     if _lang in ("pt", "en"):
@@ -276,8 +276,8 @@ with left:
 with right:
     st.markdown("<div id='login' class='login-card'>", unsafe_allow_html=True)
     st.subheader(t["secure_access"])
-    if not (GITHUB_TOKEN and REPO_USERS):
-        st.warning("Warning: configure github_token e repo_users em secrets.")
+  #   if not (GITHUB_TOKEN and REPO_USERS):
+  #       st.warning("Warning: configure github_token e repo_users em secrets.")
     username = st.text_input(t["username"])
     password = st.text_input(t["password"], type="password")
     c1, c2 = st.columns([1,1])
