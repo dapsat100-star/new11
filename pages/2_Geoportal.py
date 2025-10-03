@@ -252,7 +252,7 @@ def resolve_image_target(path_str: str) -> Optional[str]:
     if s.lower().startswith(("http://","https://")): return s
     return f"{DEFAULT_BASE_URL.rstrip('/')}/{s.lstrip('/')}"
 
-def extract_series(dfi: pd.DataFrame, date_cols_sorted, dates_ts_sorted, row_name="Taxa Metano"):
+def extract_series(dfi: pd.DataFrame, date_cols_sorted, dates_ts_sorted, row_name="Taxa Metano "):
     idx_map = {i.lower(): i for i in dfi.index}
     key = idx_map.get(row_name.lower())
     rows = []
@@ -404,7 +404,7 @@ with right:
     dfi = dfi.set_index("Parametro", drop=True)
 
     k1, k2, k3 = st.columns(3)
-    v_taxa  = get_from_dfi(dfi, selected_col, "Taxa Metano")
+    v_taxa  = get_from_dfi(dfi, selected_col, "Taxa Metano (kg")
     v_inc   = get_from_dfi(dfi, selected_col, "Incerteza")
     v_vento = get_from_dfi(dfi, selected_col, "Velocidade do Vento")
 
@@ -502,7 +502,7 @@ else:
         )
 
     fig_line.update_layout(
-        template="plotly_white", xaxis_title="Data", yaxis_title="Taxa de Metano",
+        template="plotly_white", xaxis_title="Data", yaxis_title="Taxa de Metano (kgCH4/hr) ",
         margin=dict(l=10, r=10, t=30, b=10), height=420,
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
     )
