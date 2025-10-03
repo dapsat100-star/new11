@@ -116,8 +116,8 @@ with st.sidebar:
         st.switch_page("app.py")
     st.markdown("---")
 
-    # --- Atalhos para módulos (links fixos) ---
-    st.markdown("### 🔗 Módulos")
+    # --- Atalho único de módulo ---
+    st.markdown("### 🔗 Módulo")
 
     def _first_existing(*cands):
         for p in cands:
@@ -125,13 +125,10 @@ with st.sidebar:
                 return p
         return cands[0]
 
-    AGENDA_PAGE    = _first_existing("pages/4_Agendamento_de_Imagens.py", "4_Agendamento_de_Imagens.py")
-    RELATORIO_PAGE = _first_existing("pages/3_Relatorio_OGMP_2_0.py", "3_Relatorio_OGMP_2_0.py")
-    ESTATS_PAGE    = _first_existing("pages/1_Estatisticas_Gerais.py", "1_Estatisticas_Gerais.py")
+    AGENDA_PAGE = _first_existing("pages/4_Agendamento_de_Imagens.py", "4_Agendamento_de_Imagens.py")
 
-    st.page_link(AGENDA_PAGE,    label="AGENDAMENTO DE IMAGENS", icon="🗓️")
-    st.page_link(RELATORIO_PAGE, label="RELATÓRIO OGMP 2.0",     icon="📄")
-    st.page_link(ESTATS_PAGE,    label="ESTATÍSTICAS",           icon="📊")
+    # Apenas um link no menu, com novo nome
+    st.page_link(AGENDA_PAGE, label="CRONOGRAMA DE PASSES DE SATÉLITE", icon="🛰️")
 
     st.markdown("---")
 
@@ -372,7 +369,7 @@ with right:
     st.subheader("Detalhes do Registro")
     dfi = df_site.copy()
     if dfi.columns[0] != "Parametro":
-        dfi.columns = ["Parametro"] + list(dfi.columns[1:])
+        dfi.columns = ["Parametro"] + list(dfi.columns[1:]]
     dfi["Parametro"] = dfi["Parametro"].astype(str).str.strip()
     dfi = dfi.set_index("Parametro", drop=True)
 
