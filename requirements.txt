@@ -1,26 +1,31 @@
+# --- Núcleo ---
 streamlit>=1.32
-streamlit-authenticator==0.3.2
 python-dotenv>=1.0.0
 Pillow>=10.0.0
 PyYAML>=6.0
-snowflake-connector-python>=3.0.0
 
-# data
+# --- Autenticação ---
+bcrypt>=4.0.1
+requests>=2.31.0
+
+# --- Dados ---
 pandas>=2.0.0
 numpy>=1.25.0
 
-# gráficos
+# --- Gráficos ---
 plotly>=5.18.0
+matplotlib>=3.9.0
 
-# mapas
+# --- Mapas ---
 folium>=0.14.0
 streamlit-folium>=0.13.0
 
-# PDF
+# --- PDF ---
 reportlab>=4.0.0
 kaleido>=0.2.1
 
-# Excel
+# --- Excel ---
 openpyxl>=3.1.2
-matplotlib>=3.9.0
 
+# --- Outros ---
+snowflake-connector-python>=3.0.0
