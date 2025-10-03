@@ -26,22 +26,28 @@ load_dotenv()
 # VARIÁVEIS DE AMBIENTE (SECRETS)
 # =========================
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
-st.write("🔐 DEBUG: GITHUB_TOKEN carregado?", bool(GITHUB_TOKEN))
-st.write("🔐 DEBUG: REPO_USERS =", REPO_USERS)
-
-# Teste direto da API GitHub (sem login)
-test_url = f"https://api.github.com/repos/{REPO_USERS}/contents/users.json"
-r = requests.get(test_url, headers={"Authorization": f"Bearer {GITHUB_TOKEN}"})
-st.write("🔐 DEBUG: GitHub status code =", r.status_code)
-if r.status_code != 200:
-    st.code(r.text)
-
 REPO_USERS = os.getenv("REPO_USERS")               # dapsat100-star/new11
 REPO_CRONOGRAMA = os.getenv("REPO_CRONOGRAMA")     # dapsat100-star/cronograma
 GITHUB_BRANCH = os.getenv("GITHUB_BRANCH", "main")
 GH_DATA_ROOT = os.getenv("GH_DATA_ROOT", "data/validado")
 
 HEADERS = {"Authorization": f"Bearer {GITHUB_TOKEN}", "Accept": "application/vnd.github+json"}
+
+# =========================
+# DEBUG INICIAL
+# =========================
+st.sidebar.markdown("### 🐞 Debug - Variáveis")
+st.sidebar.write("GITHUB_TOKEN carregado?", bool(GITHUB_TOKEN))
+st.sidebar.write("REPO_USERS =", REPO_USERS)
+st.sidebar.write("REPO_CRONOGRAMA =", REPO_CRONOGRAMA)
+
+# Teste de conexão com GitHub (users.json)
+if GITHUB_TOKEN and REPO_USERS:
+    test_url = f"https://api.github.com/repos/{REPO_USERS}/contents/users.json"
+    r = requests.get(test_url, headers={"Authorization": f"Bearer {GITHUB_TOKEN}"})
+    st.sidebar.write("GitHub API status (users.json):", r.status_code)
+    if r.status_code != 200:
+        st.sidebar.code(r.text)
 
 # =========================
 # FUNÇÃO: BACKGROUND HERO
@@ -124,11 +130,9 @@ def github_load_json(repo: str, path: str) -> Tuple[Dict[str, Any], str | None]:
         data = r.json()
         content = base64.b64decode(data["content"]).decode("utf-8")
         return json.loads(content), data.get("sha")
-    elif r.status_code == 404:
-        st.error(f"Arquivo {path} não encontrado em {repo}.")
-        return {}, None
     else:
-        st.error(f"Erro ao acessar GitHub: {r.status_code} - {r.text}")
+        st.error(f"Erro ao acessar GitHub ({repo}/{path}): {r.status_code}")
+        st.code(r.text)
         return {}, None
 
 def github_save_json(repo: str, path: str, content: dict, message: str, sha: str | None) -> bool:
@@ -153,9 +157,6 @@ def check_password(plain: str, hashed: str) -> bool:
         return bcrypt.checkpw(plain.encode(), hashed.encode())
     except Exception:
         return False
-
-def hash_password(plain: str) -> str:
-    return bcrypt.hashpw(plain.encode(), bcrypt.gensalt()).decode()
 
 # =========================
 # HERO SECTION + LOGIN FORM
@@ -191,44 +192,26 @@ with right:
     st.markdown("</div>", unsafe_allow_html=True)
 
 # =========================
-# AUTENTICAÇÃO
+# AUTENTICAÇÃO (com debug)
 # =========================
 if login_btn:
+    st.write("🐞 DEBUG: Tentando login para usuário:", username)
     users_cfg, users_sha = github_load_json(REPO_USERS, USERS_FILE)
+    st.write("🐞 DEBUG: users_cfg =", users_cfg)
+
     user_rec = users_cfg.get("users", {}).get(username)
+    st.write("🐞 DEBUG: user_rec =", user_rec)
+
     if not user_rec or not check_password(password, user_rec["password"]):
         st.error("Usuário ou senha inválidos.")
     else:
         st.session_state["user"] = username
-        st.session_state["must_change"] = user_rec.get("must_change", False)
-        st.session_state["users_sha"] = users_sha
-        st.session_state["users_cfg"] = users_cfg
         st.experimental_rerun()
 
 # =========================
 # ÁREA AUTENTICADA
 # =========================
-if "user" in st.session_state and not st.session_state.get("must_change", False):
+if "user" in st.session_state:
     st.sidebar.success(f"Logado como: {st.session_state['user']}")
-    st.sidebar.markdown("## 📁 Módulos")
-    for path, label, icon in [
-        ("pages/2_Geoportal.py", "Geoportal", "🗺️"),
-        ("pages/4_Agendamento_de_Imagens.py", "Agendamentos", "🗓️"),
-        ("pages/3_Relatorio_OGMP_2_0.py", "Relatórios", "📄"),
-        ("pages/1_Estatisticas_Gerais.py", "Estatísticas", "📊")
-    ]:
-        if Path(path).exists():
-            st.sidebar.page_link(path, label=label, icon=icon)
-    if st.sidebar.button("Sair"):
-        st.session_state.clear()
-        st.experimental_rerun()
     st.success("✅ Login realizado com sucesso.")
 
-# =========================
-# FOOTER
-# =========================
-st.markdown("""
-<div style="margin-top:40px; padding:16px 0; border-top:1px solid #eee; font-size:12px; color:#444;">
-  DAP ATLAS · Ambiente: Produção · <a href="mailto:support@dapsistemas.com">Suporte</a>
-</div>
-""", unsafe_allow_html=True)
