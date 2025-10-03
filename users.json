@@ -10,10 +10,8 @@
       "email": "marcio.perassoli@dapsat.com",
       "password": "$2b$12$omYSUsyOYvPJI3KrMcVcFeEiCqoBiJM9PsapJlHd/gvZST1H9HQEW",
       "must_change": false
-    }
-  }
-},
-"abilio": {
+    },
+    "abilio": {
       "name": "Abilio Garcia",
       "email": "abilio.garcia@dapsat.com",
       "password": "$2b$12$8STGAoBsa7T8Yf67RtKh3uL5ZC9wqEpZ/ZdZzHnc13ThE8b9v3Aw6",
