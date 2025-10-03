@@ -12,11 +12,6 @@ import pandas as pd
 import streamlit as st
 import plotly.graph_objects as go
 
-# ==== Auth (apenas para botão Sair e guard) ====
-import yaml
-from yaml.loader import SafeLoader
-import streamlit_authenticator as stauth
-
 # ===================== CONFIG =====================
 DEFAULT_BASE_URL = "https://raw.githubusercontent.com/dapsat100-star/geoportal/main"
 LOGO_REL_PATH    = "images/logomavipe.jpeg"  # usado no PDF
@@ -104,48 +99,30 @@ if logo_ui_path.exists():
 
 st.title("📷 Geoportal de Metano — gráfico único")
 
-# ---- Guard de sessão ----
-auth_ok   = st.session_state.get("authentication_status", None)
-user_name = st.session_state.get("name") or st.session_state.get("username")
-if not auth_ok:
+# ---- Guard de sessão (compatível com app novo e legado) ----
+is_auth = bool(st.session_state.get("user")) or bool(st.session_state.get("authentication_status"))
+user_name = st.session_state.get("name") or st.session_state.get("username") or st.session_state.get("user")
+
+if not is_auth:
     st.warning("Sessão expirada ou não autenticada.")
-    st.markdown('<a href="/" target="_self">🔒 Voltar à página de login</a>', unsafe_allow_html=True)
+    st.page_link("app.py", label="🔐 Voltar à página de login")
     st.stop()
 
 # ================= Sidebar =================
-def _build_authenticator():
-    try:
-        with open("auth_config.yaml", "r", encoding="utf-8") as f:
-            cfg = yaml.load(f, Loader=SafeLoader)
-        return stauth.Authenticate(
-            cfg["credentials"],
-            cfg["cookie"]["name"],
-            cfg["cookie"]["key"],
-            cfg["cookie"]["expiry_days"],
-        )
-    except Exception:
-        return None
-
 with st.sidebar:
     st.success(f"Logado como: {user_name or 'usuário'}")
-    _auth = _build_authenticator()
-    if _auth:
-        try:
-            _auth.logout(location="sidebar")
-        except Exception:
-            _auth.logout("Sair", "sidebar")
+    if st.button("Sair", use_container_width=True):
+        st.session_state.clear()
+        st.switch_page("app.py")
     st.markdown("---")
 
     # --- Atalhos para módulos (links fixos) ---
     st.markdown("### 🔗 Módulos")
 
-    # Resolve caminhos tanto para estrutura na raiz quanto em /pages
     def _first_existing(*cands):
-        from pathlib import Path
         for p in cands:
             if Path(p).exists():
                 return p
-        # se nenhum existir, retorna o primeiro (Streamlit ignora se não existir)
         return cands[0]
 
     AGENDA_PAGE    = _first_existing("pages/4_Agendamento_de_Imagens.py", "4_Agendamento_de_Imagens.py")
@@ -193,7 +170,6 @@ def normalize_cols(df: pd.DataFrame) -> pd.DataFrame:
     df.columns = normed
     return df
 
-# ----------- rótulos de data PT-BR ------------
 def _fmt_pt_month(dt: pd.Timestamp) -> str:
     meses = [
         "janeiro","fevereiro","março","abril","maio","junho",
@@ -664,7 +640,7 @@ def build_report_pdf(
             c.drawString(margin, y, f"[Falha ao exportar gráfico: {e}]"); y -= 14
 
     # Rodapé
-    c.setFont("Helvetica", 8); c.setFillColorRGB(*GRAY)
+    c.setFont("Helvetica", 8); c.setFillColorRGB(0.42,0.45,0.50)
     c.drawRightString(W - margin, 12, f"pág {page_no}")
     c.setFillColorRGB(0,0,0)
 
@@ -698,5 +674,3 @@ if st.button("Gerar PDF (dados + gráfico)", type="primary", use_container_width
         mime="application/pdf",
         use_container_width=True
     )
-
-
