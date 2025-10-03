@@ -52,7 +52,7 @@ section[data-testid="stSidebar"], aside[data-testid="stSidebar"] {
   min-width: 400px !important;
   background: #ffffff !important;
   border-right: 1px solid #eef0f3 !important;
-  position: sticky ! important;
+  position: sticky !important;  /* fix: sem espaço no !important */
   top: 0 !important;
   height: 100vh !important;
   overflow: auto !important;
@@ -343,7 +343,9 @@ badge = (
 last_local = st.session_state.get("__last_saved_ts")  # ISO '...Z'
 last_git   = (st.session_state.get("ultimo_meta") or {}).get("saved_at_utc")
 
-def _fmt(ts: str) -> str:
+def _fmt(ts: Optional[str]) -> str:
+    if not ts:
+        return "—"
     return ts.replace("T", " ").replace("Z", " UTC")
 
 if last_local:
@@ -402,7 +404,7 @@ view["data_validacao"] = view["data_validacao"].apply(
 # Coluna visual para o Status (com ícones coloridos)
 view["Status"] = view["status"].map(STATUS_TO_VIS).fillna("⚫ Pendente")
 view = view.drop(columns=["status"])  # escondemos a crua
-view = view.reset_index(drop=True)    # ✅ garante RangeIndex simples
+view = view.reset_index(drop=True)    # garante RangeIndex simples
 
 colcfg = {
     "site_nome": st.column_config.TextColumn("Site", disabled=True, width="medium"),
@@ -423,7 +425,7 @@ edited = st.data_editor(
     column_config=colcfg,
     disabled=["site_nome","data","data_validacao"],
     key=editor_key,
-    hide_index=True,   # ✅ esconde a coluna da esquerda
+    hide_index=True,   # esconde a coluna da esquerda
 )
 
 st.markdown("</div>", unsafe_allow_html=True)
@@ -497,7 +499,6 @@ def _aplicar_salvamento(edited_display: pd.DataFrame):
     st.session_state.df_validado = merged
     try:
         xlsb = _exportar_excel_bytes(merged)
-        # usa usuário logado como autor
         meta = gh_save_snapshot(xlsb, author=current_user)
         st.session_state.ultimo_meta = meta
         st.session_state["__last_saved_ts"] = meta.get("saved_at_utc")
