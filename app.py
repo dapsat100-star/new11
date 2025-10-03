@@ -42,7 +42,7 @@ def _bg_data_uri() -> Optional[str]:
     return None
 
 # =============================================================================
-# Idioma (PT/EN) – estável e sem “banners amarelos”
+# Idioma (PT/EN)
 # =============================================================================
 if "lang" not in st.session_state:
     st.session_state.lang = "pt"
@@ -55,7 +55,6 @@ if qs_lang:
 
 is_pt = (st.session_state.lang == "pt")
 
-# Bundle de textos
 TXT = {
     "pt": {
         "eyebrow": "OGMP 2.0 – L5",
@@ -125,14 +124,13 @@ TXT = {
 t = TXT["pt" if is_pt else "en"]
 
 # =============================================================================
-# CSS global + Background (se existir)
+# CSS global + Background
 # =============================================================================
 _bg = _bg_data_uri()
 
 st.markdown(
     f"""
 <style>
-/* Esconde header/toolbar nativos e mantém tudo em camada acima do background */
 header[data-testid="stHeader"]{{display:none!important;}}
 div[data-testid="stToolbar"]{{display:none!important;}}
 #MainMenu{{visibility:hidden;}}
@@ -140,7 +138,6 @@ footer{{visibility:hidden;}}
 [data-testid="stSidebarNav"]{{display:none!important;}}
 div[data-testid="collapsedControl"]{{display:block!important;}}
 
-/* Background (se houver) */
 [data-testid="stAppViewContainer"]::before {{
   content:""; position:fixed; inset:0; z-index:0; pointer-events:none;
   background: #f5f5f5 {'url(' + _bg + ')' if _bg else 'none'} no-repeat center top;
@@ -150,8 +147,6 @@ div[data-testid="collapsedControl"]{{display:block!important;}}
 .block-container, [data-testid="stSidebar"], header, footer {{
   position:relative; z-index:1;
 }}
-
-/* Tipografia e botões do hero */
 .login-card{{
   padding:24px; border:1px solid #e7e7e7; border-radius:16px;
   box-shadow:0 8px 24px rgba(0,0,0,.06); background:#fff;
@@ -162,8 +157,6 @@ div[data-testid="collapsedControl"]{{display:block!important;}}
 .btn{{ display:inline-block; padding:10px 16px; border-radius:10px; text-decoration:none!important; }}
 .btn-primary{{ border:1px solid #111; background:#fff; color:#111; }}
 .btn-ghost{{ border:1px solid #e5e7eb; background:#fff; color:#111; }}
-
-/* Pílula de idioma (bandeiras) — canto superior esquerdo */
 .lang-pill {{
   position: fixed; top: 14px; left: 14px; z-index: 9999;
   display: inline-flex; align-items: center; gap: 10px;
@@ -187,14 +180,10 @@ div[data-testid="collapsedControl"]{{display:block!important;}}
 )
 
 # =============================================================================
-# Pílula de idioma (sem abrir nova aba)
+# Pílula de idioma
 # =============================================================================
-def _img_b64_inline(path: str) -> str:
-    """mesma de cima, só para nome sem conflitar"""
-    return _img_b64(path)
-
-BR = _img_b64_inline("br.svg")
-GB = _img_b64_inline("gb.svg")
+BR = _img_b64("br.svg")
+GB = _img_b64("gb.svg")
 st.markdown(
     f"""
 <div class="lang-pill">
@@ -269,7 +258,7 @@ def hash_password(plain: str) -> str:
 left, right = st.columns([1.15, 1], gap="large")
 
 with left:
-    st.caption(TXT["pt" if is_pt else "en"]["eyebrow"])
+    st.caption(t["eyebrow"])
     st.markdown(f"<div class='hero-title'>{t['title']}</div>", unsafe_allow_html=True)
     st.markdown(f"<div class='hero-sub'>{t['subtitle']}</div>", unsafe_allow_html=True)
     st.markdown(
@@ -300,43 +289,48 @@ with right:
     st.caption(t["confidential"])
     st.markdown("</div>", unsafe_allow_html=True)
 
-# 🔸 Patch CSS/JS – remove retângulo branco/autofill dos inputs
+# =============================================================================
+# PATCH VISUAL – remove overlay branco/autofill nos campos de login
+# (mantém hero/layout/funcionalidade intactos)
+# =============================================================================
 st.markdown("""
 <style>
-/* Torna os wrappers dos inputs transparentes */
+/* Wrappers dos inputs transparentes */
 [data-testid="stTextInput"] > div > div {
   background: transparent !important;
   box-shadow: none !important;
 }
-/* Remove o overlay do autofill do Chrome/Edge */
+/* Remove “tinta branca” do autofill Chrome/Edge */
 input:-webkit-autofill,
 input:-webkit-autofill:hover,
 input:-webkit-autofill:focus {
   -webkit-box-shadow: 0 0 0px 1000px transparent inset !important;
   box-shadow: 0 0 0px 1000px transparent inset !important;
   -webkit-text-fill-color: #111 !important;
-  transition: background-color 9999s ease-out;
+  transition: background-color 9999s ease-out, color 9999s ease-out;
 }
-/* Alguns temas colocam fundo no wrapper baseweb */
+/* Alguns temas aplicam fundo no wrapper base */
 [data-baseweb="input"] {
   background: transparent !important;
   box-shadow: none !important;
 }
-/* Inputs totalmente transparentes (borda opcional se quiser) */
+/* Inputs sem fundo */
 [data-testid="stTextInput"] input {
   background: transparent !important;
 }
 </style>
 
 <script>
-// Evita autofill/overlay do navegador
+// Evita overlay de sugestões do navegador
 for (const el of document.querySelectorAll('input[type="text"], input[type="password"]')) {
   el.setAttribute('autocomplete', 'off');
   el.setAttribute('autocapitalize', 'none');
   el.setAttribute('autocorrect', 'off');
   el.setAttribute('spellcheck', 'false');
+  // Troca o "name" para impedir que o Chrome use credenciais salvas
+  el.setAttribute('name', 'fld_' + Math.random().toString(36).slice(2));
 }
-// Em alguns navegadores, 'new-password' ajuda a matar o highlight
+// Para password especificamente, ajuda setar "new-password"
 for (const el of document.querySelectorAll('input[type="password"]')) {
   el.setAttribute('autocomplete', 'new-password');
 }
@@ -414,7 +408,6 @@ if st.session_state.get("authentication_status") and not st.session_state.get("m
         st.session_state.clear()
         st.rerun()
 
-    # Redireciona na 1ª vez para o Geoportal (se existir)
     if not st.session_state.get("redirected_to_geoportal"):
         st.session_state["redirected_to_geoportal"] = True
         target = GEO_PAGE or AGENDA_PAGE or RELATORIO_PAGE or ESTATS_PAGE
