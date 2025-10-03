@@ -206,7 +206,7 @@ if login_btn:
         st.error("Usuário ou senha inválidos.")
     else:
         st.session_state["user"] = username
-        st.experimental_rerun()
+        st.rerun()
 
 # =========================
 # ÁREA AUTENTICADA
