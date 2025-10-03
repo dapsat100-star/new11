@@ -124,93 +124,99 @@ TXT = {
 t = TXT["pt" if is_pt else "en"]
 
 # =============================================================================
-# CSS global + Background
+# CSS global + Background (com _bg dinâmico) + glass effect
 # =============================================================================
 _bg = _bg_data_uri()
 
 st.markdown(
     f"""
 <style>
-header[data-testid="stHeader"]{display:none!important;}
-div[data-testid="stToolbar"]{display:none!important;}
-#MainMenu{visibility:hidden;}
-footer{visibility:hidden;}
-[data-testid="stSidebarNav"]{display:none!important;}
-div[data-testid="collapsedControl"]{display:block!important;}
+/* Oculta cabeçalhos nativos */
+header[data-testid="stHeader"]{{display:none!important;}}
+div[data-testid="stToolbar"]{{display:none!important;}}
+#MainMenu{{visibility:hidden;}}
+footer{{visibility:hidden;}}
+[data-testid="stSidebarNav"]{{display:none!important;}}
+div[data-testid="collapsedControl"]{{display:block!important;}}
 
-[data-testid="stAppViewContainer"]::before {
+/* Fundo com imagem dinâmica se existir */
+[data-testid="stAppViewContainer"]::before {{
   content:""; position:fixed; inset:0; z-index:0; pointer-events:none;
   background: #f5f5f5 {'url(' + _bg + ')' if _bg else 'none'} no-repeat center top;
   background-size: clamp(900px, 85vw, 1600px) auto; opacity:.50;
   filter: contrast(103%) brightness(101%);
-}
-.block-container, [data-testid="stSidebar"], header, footer {
+}}
+.block-container, [data-testid="stSidebar"], header, footer {{
   position:relative; z-index:1;
-}
+}}
 
-.login-card{
-  padding:24px; border:1px solid #e7e7e7; border-radius:16px;
-  box-shadow:0 8px 24px rgba(0,0,0,.06); background:#fff;
-}
-.hero-title{ font-size:44px; line-height:1.05; font-weight:900; letter-spacing:-0.02em; margin:8px 0 10px 0; }
-.hero-sub{ font-size:16px; color:#222; max-width:56ch; }
-.hero-bullets li{ margin:6px 0; }
+/* Card de login com glass effect */
+.login-card{{
+  padding:24px; border:1px solid rgba(231,231,231,.8); border-radius:16px;
+  background: rgba(255,255,255,.55);
+  box-shadow:0 8px 24px rgba(0,0,0,.06);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}}
 
-/* botões */
-.btn{ display:inline-block; padding:10px 16px; border-radius:10px; text-decoration:none!important; }
-.btn-primary{ border:1px solid #111; background:#fff; color:#111; }
-.btn-ghost{ border:1px solid #e5e7eb; background:#fff; color:#111; }
+/* Tipografia & botões do hero */
+.hero-title{{ font-size:44px; line-height:1.05; font-weight:900; letter-spacing:-0.02em; margin:8px 0 10px 0; }}
+.hero-sub{{ font-size:16px; color:#222; max-width:56ch; }}
+.hero-bullets li{{ margin:6px 0; }}
+.btn{{ display:inline-block; padding:10px 16px; border-radius:10px; text-decoration:none!important; }}
+.btn-primary{{ border:1px solid #111; background:#fff; color:#111; }}
+.btn-ghost{{ border:1px solid #e5e7eb; background:#fff; color:#111; }}
 
-/* 🌟 Patch: remove o retângulo branco fantasma de autofoco */
+/* 👻 Patch: remove o retângulo branco fantasma do autofoco inicial */
 section[data-testid="stTextInputRoot"] > div:empty,
-div[data-testid="stTextInput"] > div:empty {
-    display: none !important;
-}
-input:focus {
-    outline: none !important;
-    box-shadow: none !important;
-}
+div[data-testid="stTextInput"] > div:empty {{
+  display: none !important;
+}}
+input:focus {{
+  outline: none !important;
+  box-shadow: none !important;
+}}
 
-/* ✨ Fundo translúcido cinza para os campos de input */
-[data-testid="stTextInput"] input {
-    background: rgba(240, 240, 240, 0.6) !important;
-    border: 1px solid #ddd !important;
-    border-radius: 8px !important;
-    padding: 8px 10px !important;
-    font-size: 14px !important;
-    transition: background 0.2s, box-shadow 0.2s;
-}
-[data-testid="stTextInput"] input:focus {
-    background: rgba(255, 255, 255, 0.75) !important;
-    box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.08) !important;
-    outline: none !important;
-}
+/* ✨ Inputs com fundo cinza translúcido + foco suave */
+[data-testid="stTextInput"] input {{
+  background: rgba(240,240,240,.6) !important;
+  border: 1px solid #ddd !important;
+  border-radius: 8px !important;
+  padding: 8px 10px !important;
+  font-size: 14px !important;
+  transition: background .2s, box-shadow .2s;
+}}
+[data-testid="stTextInput"] input:focus {{
+  background: rgba(255,255,255,.75) !important;
+  box-shadow: 0 0 0 2px rgba(0,0,0,.08) !important;
+  outline: none !important;
+}}
 
-/* Pílula de idioma */
-.lang-pill {
+/* Pílula de idioma (bandeiras) */
+.lang-pill {{
   position: fixed; top: 14px; left: 14px; z-index: 9999;
   display: inline-flex; align-items: center; gap: 10px;
   background: #fff; border: 1px solid #e5e7eb; border-radius: 999px;
   padding: 6px 10px; box-shadow: 0 8px 20px rgba(0,0,0,.08);
-}
-.lang-pill a {
+}}
+.lang-pill a {{
   display: inline-block; width: 26px; height: 20px;
   background-size: cover; background-position: center;
   border-radius: 4px; opacity: .85; transition: opacity .15s, outline-color .15s;
   outline: 2px solid transparent; outline-offset: 2px;
-}
-.lang-pill a:hover { opacity: 1; }
-.lang-pill a.active { outline-color: #1f6feb; opacity: 1; }
-.lang-pill .divider {
+}}
+.lang-pill a:hover {{ opacity: 1; }}
+.lang-pill a.active {{ outline-color: #1f6feb; opacity: 1; }}
+.lang-pill .divider {{
   width: 1px; height: 16px; background: #e5e7eb; display: inline-block;
-}
+}}
 </style>
 """,
     unsafe_allow_html=True,
 )
 
 # =============================================================================
-# Pílula de idioma
+# Pílula de idioma (sem abrir nova aba)
 # =============================================================================
 BR = _img_b64("br.svg")
 GB = _img_b64("gb.svg")
@@ -271,11 +277,7 @@ def save_users(data, message, sha):
     return _gh_save_json(REPO_USERS, USERS_FILE, data, message, sha)
 
 # =============================================================================
-# Password helpers (usando bcrypt direto nas chamadas principais)
-# =============================================================================
-
-# =============================================================================
-# Layout principal
+# Layout principal (hero + login)
 # =============================================================================
 left, right = st.columns([1.15, 1], gap="large")
 
@@ -330,7 +332,7 @@ if login_btn:
         st.rerun()
 
 # =============================================================================
-# Troca obrigatória de senha
+# Troca obrigatória de senha (primeiro acesso)
 # =============================================================================
 if st.session_state.get("user") and st.session_state.get("must_change"):
     st.warning(t["must_change"])
@@ -356,7 +358,7 @@ if st.session_state.get("user") and st.session_state.get("must_change"):
             st.error(t["pwd_change_error"])
 
 # =============================================================================
-# Área autenticada
+# Área autenticada: sidebar + redirecionamento inicial
 # =============================================================================
 def _first_existing(*paths: str) -> Optional[str]:
     for p in paths:
@@ -382,6 +384,7 @@ if st.session_state.get("authentication_status") and not st.session_state.get("m
         st.session_state.clear()
         st.rerun()
 
+    # Redireciona na 1ª vez
     if not st.session_state.get("redirected_to_geoportal"):
         st.session_state["redirected_to_geoportal"] = True
         target = GEO_PAGE or AGENDA_PAGE or RELATORIO_PAGE or ESTATS_PAGE
