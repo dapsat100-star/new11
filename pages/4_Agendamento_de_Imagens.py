@@ -53,7 +53,7 @@ section[data-testid="stSidebar"], aside[data-testid="stSidebar"] {
   min-width: 400px !important;
   background: #ffffff !important;
   border-right: 1px solid #eef0f3 !important;
-  position: sticky !important;
+  position: sticky ! important;
   top: 0 !important;
   height: 100vh !important;
   overflow: auto !important;
@@ -407,6 +407,7 @@ view["data_validacao"] = view["data_validacao"].apply(
 # Coluna visual para o Status (com ícones coloridos)
 view["Status"] = view["status"].map(STATUS_TO_VIS).fillna("⚫ Pendente")
 view = view.drop(columns=["status"])  # escondemos a crua
+view = view.reset_index(drop=True)    # ✅ garante RangeIndex simples
 
 colcfg = {
     "site_nome": st.column_config.TextColumn("Site", disabled=True, width="medium"),
@@ -427,6 +428,7 @@ edited = st.data_editor(
     column_config=colcfg,
     disabled=["site_nome","data","data_validacao"],
     key=editor_key,
+    hide_index=True,   # ✅ esconde a coluna da esquerda
 )
 
 st.markdown("</div>", unsafe_allow_html=True)
