@@ -25,8 +25,6 @@ load_dotenv()
 # =========================
 # VARIÁVEIS DE AMBIENTE (SECRETS)
 # =========================
-# Defina nas Secrets do Streamlit Cloud (Settings → Secrets) ou em .env:
-# GITHUB_TOKEN, REPO_USERS, REPO_CRONOGRAMA, GITHUB_BRANCH, GH_DATA_ROOT
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "")
 REPO_USERS = os.getenv("REPO_USERS", "")               # ex: dapsat100-star/new11
 REPO_CRONOGRAMA = os.getenv("REPO_CRONOGRAMA", "")     # ex: dapsat100-star/cronograma
@@ -116,7 +114,7 @@ def github_load_json(repo: str, path: str) -> Tuple[Dict[str, Any], Optional[str
         content = base64.b64decode(data["content"]).decode("utf-8")
         return json.loads(content), data.get("sha")
     elif r.status_code == 404:
-        st.error(f"Arquivo `{path}` não encontrado no repositório `{repo}`.")
+        return {}, None
     else:
         st.error(f"Erro GitHub {r.status_code} ao ler `{repo}/{path}`.")
         st.code(r.text)
@@ -135,11 +133,7 @@ def github_save_json(repo: str, path: str, content: dict, message: str, sha: Opt
         payload["sha"] = sha
     url = f"https://api.github.com/repos/{repo}/contents/{path}"
     r = requests.put(url, headers=HEADERS, json=payload, timeout=20)
-    if r.status_code in (200, 201):
-        return True
-    st.error(f"Falha ao salvar `{repo}/{path}` ({r.status_code}).")
-    st.code(r.text)
-    return False
+    return r.status_code in (200, 201)
 
 # =========================
 # AUTENTICAÇÃO
@@ -202,7 +196,6 @@ if login_btn:
 # TROCA OBRIGATÓRIA DE SENHA
 # =========================
 if "user" in st.session_state:
-    # Recarrega sempre o arquivo para garantir estado consistente
     users_cfg, users_sha = github_load_json(REPO_USERS, USERS_FILE)
     st.session_state["users_cfg"] = users_cfg
     st.session_state["users_sha"] = users_sha
@@ -242,7 +235,6 @@ if "user" in st.session_state:
 # ÁREA AUTENTICADA
 # =========================
 if "user" in st.session_state:
-    # Se ainda precisar trocar senha, não mostra módulos
     rec = st.session_state.get("users_cfg", {}).get("users", {}).get(st.session_state["user"], {})
     if rec.get("must_change", False) is True:
         st.stop()
@@ -250,7 +242,6 @@ if "user" in st.session_state:
     st.sidebar.success(f"Logado como: {st.session_state['user']}")
     st.sidebar.markdown("## 📁 Módulos")
 
-    # Links para páginas (só aparecem se o arquivo existir)
     for path, label, icon in [
         ("pages/2_Geoportal.py", "Geoportal", "🗺️"),
         ("pages/4_Agendamento_de_Imagens.py", "Agendamentos", "🗓️"),
@@ -266,14 +257,6 @@ if "user" in st.session_state:
 
     st.success("✅ Login realizado com sucesso.")
     st.write("Aqui você pode integrar os módulos do SaaS.")
-
-    # Exemplo simples: verificar arquivo no repo CRONOGRAMA
-    example_file = f"{GH_DATA_ROOT}/agenda.xlsx"
-    data, sha = github_load_json(REPO_CRONOGRAMA, example_file)
-    if data:
-        st.info(f"Arquivo `{example_file}` encontrado no repositório {REPO_CRONOGRAMA}.")
-    else:
-        st.caption(f"Se `{example_file}` não existir, este aviso é esperado.")
 
 # =========================
 # FOOTER
