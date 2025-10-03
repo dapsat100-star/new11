@@ -42,12 +42,11 @@ def _bg_data_uri() -> Optional[str]:
     return None
 
 # =============================================================================
-# Idioma (PT/EN) – sem experimental_* e sem banners
+# Idioma (PT/EN) – estável e sem “banners amarelos”
 # =============================================================================
 if "lang" not in st.session_state:
     st.session_state.lang = "pt"
 
-# Usa a API nova (sem experimental) e sem avisos amarelos
 qs_lang = st.query_params.get("lang")
 if qs_lang:
     val = (qs_lang or "").lower()
@@ -294,7 +293,6 @@ with left:
 with right:
     st.markdown("<div id='login' class='login-card'>", unsafe_allow_html=True)
     st.subheader(t["secure_access"])
-    # Sem warnings visuais aqui — se secrets faltarem, apenas falhará o login
     username = st.text_input(t["username"])
     password = st.text_input(t["password"], type="password")
     c1, c2 = st.columns([1, 1])
@@ -383,8 +381,7 @@ if st.session_state.get("authentication_status") and not st.session_state.get("m
             try:
                 st.switch_page(target)
             except Exception:
-                # Fallback: mantém na página e usa os atalhos da sidebar
-                pass
+                pass  # fallback: usa os atalhos da sidebar
 
 # =============================================================================
 # Rodapé
@@ -401,5 +398,3 @@ st.markdown(
 """,
     unsafe_allow_html=True,
 )
-
-
