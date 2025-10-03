@@ -189,8 +189,12 @@ div[data-testid="collapsedControl"]{{display:block!important;}}
 # =============================================================================
 # Pílula de idioma (sem abrir nova aba)
 # =============================================================================
-BR = _img_b64("br.svg")
-GB = _img_b64("gb.svg")
+def _img_b64_inline(path: str) -> str:
+    """mesma de cima, só para nome sem conflitar"""
+    return _img_b64(path)
+
+BR = _img_b64_inline("br.svg")
+GB = _img_b64_inline("gb.svg")
 st.markdown(
     f"""
 <div class="lang-pill">
@@ -265,13 +269,7 @@ def hash_password(plain: str) -> str:
 left, right = st.columns([1.15, 1], gap="large")
 
 with left:
-    # Logo (se existir)
-   # for cand in ("dapatlas.png", "logo.png", "logomavipe.jpeg"):
-   #     if Path(cand).exists():
-  #          st.image(Image.open(cand), width=180)
-    #        break
-
-    st.caption(t["eyebrow"])
+    st.caption(TXT["pt" if is_pt else "en"]["eyebrow"])
     st.markdown(f"<div class='hero-title'>{t['title']}</div>", unsafe_allow_html=True)
     st.markdown(f"<div class='hero-sub'>{t['subtitle']}</div>", unsafe_allow_html=True)
     st.markdown(
@@ -301,6 +299,49 @@ with right:
         st.info(t["forgot_msg"])
     st.caption(t["confidential"])
     st.markdown("</div>", unsafe_allow_html=True)
+
+# 🔸 Patch CSS/JS – remove retângulo branco/autofill dos inputs
+st.markdown("""
+<style>
+/* Torna os wrappers dos inputs transparentes */
+[data-testid="stTextInput"] > div > div {
+  background: transparent !important;
+  box-shadow: none !important;
+}
+/* Remove o overlay do autofill do Chrome/Edge */
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus {
+  -webkit-box-shadow: 0 0 0px 1000px transparent inset !important;
+  box-shadow: 0 0 0px 1000px transparent inset !important;
+  -webkit-text-fill-color: #111 !important;
+  transition: background-color 9999s ease-out;
+}
+/* Alguns temas colocam fundo no wrapper baseweb */
+[data-baseweb="input"] {
+  background: transparent !important;
+  box-shadow: none !important;
+}
+/* Inputs totalmente transparentes (borda opcional se quiser) */
+[data-testid="stTextInput"] input {
+  background: transparent !important;
+}
+</style>
+
+<script>
+// Evita autofill/overlay do navegador
+for (const el of document.querySelectorAll('input[type="text"], input[type="password"]')) {
+  el.setAttribute('autocomplete', 'off');
+  el.setAttribute('autocapitalize', 'none');
+  el.setAttribute('autocorrect', 'off');
+  el.setAttribute('spellcheck', 'false');
+}
+// Em alguns navegadores, 'new-password' ajuda a matar o highlight
+for (const el of document.querySelectorAll('input[type="password"]')) {
+  el.setAttribute('autocomplete', 'new-password');
+}
+</script>
+""", unsafe_allow_html=True)
 
 # =============================================================================
 # Autenticação
@@ -381,7 +422,7 @@ if st.session_state.get("authentication_status") and not st.session_state.get("m
             try:
                 st.switch_page(target)
             except Exception:
-                pass  # fallback: usa os atalhos da sidebar
+                pass  # fallback
 
 # =============================================================================
 # Rodapé
