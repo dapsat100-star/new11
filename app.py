@@ -131,33 +131,35 @@ _bg = _bg_data_uri()
 st.markdown(
     f"""
 <style>
-header[data-testid="stHeader"]{{display:none!important;}}
-div[data-testid="stToolbar"]{{display:none!important;}}
-#MainMenu{{visibility:hidden;}}
-footer{{visibility:hidden;}}
-[data-testid="stSidebarNav"]{{display:none!important;}}
-div[data-testid="collapsedControl"]{{display:block!important;}}
+header[data-testid="stHeader"]{display:none!important;}
+div[data-testid="stToolbar"]{display:none!important;}
+#MainMenu{visibility:hidden;}
+footer{visibility:hidden;}
+[data-testid="stSidebarNav"]{display:none!important;}
+div[data-testid="collapsedControl"]{display:block!important;}
 
-[data-testid="stAppViewContainer"]::before {{
+[data-testid="stAppViewContainer"]::before {
   content:""; position:fixed; inset:0; z-index:0; pointer-events:none;
   background: #f5f5f5 {'url(' + _bg + ')' if _bg else 'none'} no-repeat center top;
   background-size: clamp(900px, 85vw, 1600px) auto; opacity:.50;
   filter: contrast(103%) brightness(101%);
-}}
-.block-container, [data-testid="stSidebar"], header, footer {{
+}
+.block-container, [data-testid="stSidebar"], header, footer {
   position:relative; z-index:1;
-}}
+}
 
-.login-card{{
+.login-card{
   padding:24px; border:1px solid #e7e7e7; border-radius:16px;
   box-shadow:0 8px 24px rgba(0,0,0,.06); background:#fff;
-}}
-.hero-title{{ font-size:44px; line-height:1.05; font-weight:900; letter-spacing:-0.02em; margin:8px 0 10px 0; }}
-.hero-sub{{ font-size:16px; color:#222; max-width:56ch; }}
-.hero-bullets li{{ margin:6px 0; }}
-.btn{{ display:inline-block; padding:10px 16px; border-radius:10px; text-decoration:none!important; }}
-.btn-primary{{ border:1px solid #111; background:#fff; color:#111; }}
-.btn-ghost{{ border:1px solid #e5e7eb; background:#fff; color:#111; }}
+}
+.hero-title{ font-size:44px; line-height:1.05; font-weight:900; letter-spacing:-0.02em; margin:8px 0 10px 0; }
+.hero-sub{ font-size:16px; color:#222; max-width:56ch; }
+.hero-bullets li{ margin:6px 0; }
+
+/* botões */
+.btn{ display:inline-block; padding:10px 16px; border-radius:10px; text-decoration:none!important; }
+.btn-primary{ border:1px solid #111; background:#fff; color:#111; }
+.btn-ghost{ border:1px solid #e5e7eb; background:#fff; color:#111; }
 
 /* 🌟 Patch: remove o retângulo branco fantasma de autofoco */
 section[data-testid="stTextInputRoot"] > div:empty,
@@ -178,7 +180,6 @@ input:focus {
     font-size: 14px !important;
     transition: background 0.2s, box-shadow 0.2s;
 }
-
 [data-testid="stTextInput"] input:focus {
     background: rgba(255, 255, 255, 0.75) !important;
     box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.08) !important;
@@ -186,23 +187,23 @@ input:focus {
 }
 
 /* Pílula de idioma */
-.lang-pill {{
+.lang-pill {
   position: fixed; top: 14px; left: 14px; z-index: 9999;
   display: inline-flex; align-items: center; gap: 10px;
   background: #fff; border: 1px solid #e5e7eb; border-radius: 999px;
   padding: 6px 10px; box-shadow: 0 8px 20px rgba(0,0,0,.08);
-}}
-.lang-pill a {{
+}
+.lang-pill a {
   display: inline-block; width: 26px; height: 20px;
   background-size: cover; background-position: center;
   border-radius: 4px; opacity: .85; transition: opacity .15s, outline-color .15s;
   outline: 2px solid transparent; outline-offset: 2px;
-}}
-.lang-pill a:hover {{ opacity: 1; }}
-.lang-pill a.active {{ outline-color: #1f6feb; opacity: 1; }}
-.lang-pill .divider {{
+}
+.lang-pill a:hover { opacity: 1; }
+.lang-pill a.active { outline-color: #1f6feb; opacity: 1; }
+.lang-pill .divider {
   width: 1px; height: 16px; background: #e5e7eb; display: inline-block;
-}}
+}
 </style>
 """,
     unsafe_allow_html=True,
@@ -268,6 +269,10 @@ def load_users():
 
 def save_users(data, message, sha):
     return _gh_save_json(REPO_USERS, USERS_FILE, data, message, sha)
+
+# =============================================================================
+# Password helpers (usando bcrypt direto nas chamadas principais)
+# =============================================================================
 
 # =============================================================================
 # Layout principal
