@@ -26,6 +26,16 @@ load_dotenv()
 # VARIÁVEIS DE AMBIENTE (SECRETS)
 # =========================
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
+st.write("🔐 DEBUG: GITHUB_TOKEN carregado?", bool(GITHUB_TOKEN))
+st.write("🔐 DEBUG: REPO_USERS =", REPO_USERS)
+
+# Teste direto da API GitHub (sem login)
+test_url = f"https://api.github.com/repos/{REPO_USERS}/contents/users.json"
+r = requests.get(test_url, headers={"Authorization": f"Bearer {GITHUB_TOKEN}"})
+st.write("🔐 DEBUG: GitHub status code =", r.status_code)
+if r.status_code != 200:
+    st.code(r.text)
+
 REPO_USERS = os.getenv("REPO_USERS")               # dapsat100-star/new11
 REPO_CRONOGRAMA = os.getenv("REPO_CRONOGRAMA")     # dapsat100-star/cronograma
 GITHUB_BRANCH = os.getenv("GITHUB_BRANCH", "main")
