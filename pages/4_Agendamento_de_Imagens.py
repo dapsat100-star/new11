@@ -1,9 +1,7 @@
 # -*- coding: utf-8 -*-
 # pages/4_Agendamento_de_Imagens.py
-# UX estilo SaaS + Sidebar fixa + filtros com contorno visível
-# Fluxo de salvamento simples (1 botão) + auto-refresh após salvar
-# GitHub com token + fallback via latest.json + cache simples
-# Correção de merge/salvamento e uso de openpyxl
+# Cronograma de Passes de Satélites — UI SaaS, sidebar fixa, GitHub status badge,
+# salvamento sem expor paths e sem diagnóstico visível.
 
 from __future__ import annotations
 
@@ -22,7 +20,7 @@ import plotly.graph_objects as go
 import requests
 import streamlit as st
 
-# ==== Guard de sessão (aceita app novo e legado) ====
+# ==== Guard de sessão ====
 _is_auth = bool(st.session_state.get("user")) or bool(st.session_state.get("authentication_status"))
 if not _is_auth:
     st.warning("Sessão expirada ou não autenticada.")
@@ -39,14 +37,13 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# --- Sidebar fixa/visível + UI estilo SaaS + chips com contorno visível ---
+# ---------------- CSS ----------------
 st.markdown(
     """
 <style>
-/* Remove o botão de colapso (hamburger) */
 div[data-testid="collapsedControl"] { display: none !important; }
 
-/* Força a sidebar aberta, fixa e com altura total e largura maior (400px) */
+/* Sidebar fixa, 400px */
 section[data-testid="stSidebar"], aside[data-testid="stSidebar"] {
   visibility: visible !important;
   transform: translateX(0) !important;
@@ -63,12 +60,12 @@ section[data-testid="stSidebar"], aside[data-testid="stSidebar"] {
   z-index: 100;
 }
 
-/* Esconde a navegação automática da sidebar (usamos page_link manual) */
+/* Oculta navegação automática */
 div[data-testid="stSidebarNav"] { display: none !important; }
 section[data-testid="stSidebar"] nav,
 section[data-testid="stSidebar"] [role="navigation"] { display: none !important; }
 
-/* Não truncar textos de links na sidebar */
+/* Não truncar links */
 section[data-testid="stSidebar"] a[role="link"],
 section[data-testid="stSidebar"] [data-testid="stPageLink"] {
   white-space: normal !important;
@@ -86,6 +83,11 @@ section[data-testid="stSidebar"] [data-testid="stPageLink"] {
 .appbar h1 {font-size:1.6rem; margin:0;}
 .appbar .meta {color:#6b7280; font-size:.9rem;}
 
+/* Badge de status */
+.status-badge {display:inline-flex; align-items:center; gap:8px; padding:8px 12px; border-radius:999px; font-weight:600; font-size:.9rem;}
+.status-ok {background:#e8faf0; color:#106c3a; border:1px solid #bff0cf;}
+.status-err {background:#ffefef; color:#8a1414; border:1px solid #ffd0d0;}
+
 /* Cards */
 .card {background:#fff; border:1px solid #eef0f3; border-radius:16px;
   box-shadow:0 1px 2px rgba(16,24,40,.04); padding:16px; margin:12px 0;}
@@ -98,52 +100,33 @@ section[data-testid="stSidebar"] [data-testid="stPageLink"] {
 .unsaved {background:#fff; border:1px solid #e5e7eb; border-radius:14px; padding:10px 14px;
   box-shadow:0 8px 24px rgba(16,24,40,.12); display:flex; gap:10px; align-items:center;}
 
-/* Esconde header padrão do Streamlit */
 header[data-testid="stHeader"]{ display:none !important; }
 
-/* ===== Sidebar: inputs/chips com contornos visíveis ===== */
+/* Inputs/chips sidebar */
 section[data-testid="stSidebar"] {
-  --sb-border: #d1d5db;
-  --sb-border-strong: #9ca3af;
-  --sb-bg: #fafafa;
-  --sb-bg-focus: #ffffff;
-  --sb-focus-ring: rgba(31,111,235,.18);
+  --sb-border: #d1d5db; --sb-border-strong: #9ca3af; --sb-bg: #fafafa; --sb-bg-focus: #ffffff; --sb-focus-ring: rgba(31,111,235,.18);
 }
 section[data-testid="stSidebar"] div[data-baseweb="select"] > div {
-  border: 1.5px solid var(--sb-border) !important;
-  background: var(--sb-bg) !important;
-  border-radius: 10px !important;
+  border: 1.5px solid var(--sb-border) !important; background: var(--sb-bg) !important; border-radius: 10px !important;
   transition: border-color .15s ease, box-shadow .15s ease, background .15s ease;
 }
-section[data-testid="stSidebar"] div[data-baseweb="select"] > div:hover {
-  border-color: var(--sb-border-strong) !important;
-}
+section[data-testid="stSidebar"] div[data-baseweb="select"] > div:hover { border-color: var(--sb-border-strong) !important; }
 section[data-testid="stSidebar"] div[data-baseweb="select"] > div:focus-within {
-  border-color: #1f6feb !important;
-  background: var(--sb-bg-focus) !important;
-  box-shadow: 0 0 0 3px var(--sb-focus-ring) !important;
+  border-color: #1f6feb !important; background: var(--sb-bg-focus) !important; box-shadow: 0 0 0 3px var(--sb-focus-ring) !important;
 }
 section[data-testid="stSidebar"] div[data-baseweb="tag"] {
-  background: #ffffff !important;
-  color: #111827 !important;
-  border: 1.2px solid var(--sb-border) !important;
-  box-shadow: 0 1px 0 rgba(0,0,0,.04) !important;
-  border-radius: 10px !important;
-}
-section[data-testid="stSidebar"] div[data-baseweb="tag"]:hover {
-  border-color: var(--sb-border-strong) !important;
+  background: #ffffff !important; color: #111827 !important; border: 1.2px solid var(--sb-border) !important;
+  box-shadow: 0 1px 0 rgba(0,0,0,.04) !important; border-radius: 10px !important;
 }
 section[data-testid="stSidebar"] div[data-baseweb="tag"] svg { fill: #6b7280 !important; }
 section[data-testid="stSidebar"] div[data-baseweb="tag"]:hover svg { fill: #374151 !important; }
-section[data-testid="stSidebar"] h2, 
-section[data-testid="stSidebar"] h3 { color: #111827 !important; }
 </style>
 """,
     unsafe_allow_html=True,
 )
 
 # ============================================================================
-# RERUN compatível
+# RERUN
 # ============================================================================
 def _rerun():
     if hasattr(st, "rerun"):
@@ -156,12 +139,9 @@ def _rerun():
 # ============================================================================
 def _logo_b64_from(path: str) -> Optional[str]:
     p = Path(path)
-    if not p.exists():
-        return None
-    try:
-        return base64.b64encode(p.read_bytes()).decode("utf-8")
-    except Exception:
-        return None
+    if not p.exists(): return None
+    try: return base64.b64encode(p.read_bytes()).decode("utf-8")
+    except Exception: return None
 
 _LOGO_B64 = _logo_b64_from("logomavipe.jpeg")
 if _LOGO_B64:
@@ -175,45 +155,47 @@ if _LOGO_B64:
     )
 
 # ============================================================================
-# GITHUB utils (token + fallback + cache)
+# GITHUB utils + status
 # ============================================================================
 def _conf_get(*keys, default: str = "") -> str:
     for k in keys:
-        v = os.getenv(k)
-        if v:
-            return str(v)
-        try:
-            v = st.secrets.get(k)
-            if v:
-                return str(v)
-        except Exception:
-            pass
+        v = os.getenv(k) or (st.secrets.get(k) if hasattr(st, "secrets") else "")
+        if v: return str(v)
     return default
 
-def _gh_token() -> str:
-    return _conf_get("GITHUB_TOKEN", "github_token")
+def _gh_token() -> str:   return _conf_get("GITHUB_TOKEN", "github_token")
+def _gh_repo()  -> str:   return _conf_get("REPO_CRONOGRAMA", "github_repo")
+def _gh_branch()-> str:   return _conf_get("GITHUB_BRANCH", "github_branch", default="main")
+def _gh_root()  -> str:   return _conf_get("GH_DATA_ROOT", "gh_data_root", "data_root", default="data/validado")
 
-def _gh_repo() -> str:
-    return _conf_get("REPO_CRONOGRAMA", "github_repo")
-
-def _gh_branch() -> str:
-    return _conf_get("GITHUB_BRANCH", "github_branch", default="main")
-
-def _gh_root() -> str:
-    return _conf_get("GH_DATA_ROOT", "gh_data_root", "data_root", default="data/validado")
-
-def _gh_headers() -> Dict[str, str]:
-    h = {"Accept": "application/vnd.github+json"}
-    tok = _gh_token()
-    if tok:
-        h["Authorization"] = f"Bearer {tok}"
+def _gh_headers() -> Dict[str,str]:
+    h={"Accept":"application/vnd.github+json"}; tok=_gh_token()
+    if tok: h["Authorization"]=f"Bearer {tok}"
     return h
+
+def _ping_github(ttl: int = 120) -> bool:
+    """Checagem leve de conectividade com cache em sessão."""
+    key = "_gh_ping_cache"
+    now = time.time()
+    cache = st.session_state.get(key, {})
+    entry = cache.get("ping")
+    if entry and (now - entry["ts"] < ttl):
+        return bool(entry["ok"])
+    try:
+        url = f"https://api.github.com/repos/{_gh_repo()}"
+        r = requests.get(url, headers=_gh_headers(), timeout=5)
+        ok = (200 <= r.status_code < 300)
+    except Exception:
+        ok = False
+    cache["ping"] = {"ts": now, "ok": ok}
+    st.session_state[key] = cache
+    return ok
 
 def _list_contents(path: str):
     url = f"https://api.github.com/repos/{_gh_repo()}/contents/{path}?ref={_gh_branch()}"
     r = requests.get(url, headers=_gh_headers(), timeout=20)
     if r.status_code == 403 and "rate limit" in r.text.lower():
-        raise RuntimeError("GitHub rate limit exceeded ao listar conteúdos")
+        raise RuntimeError("GitHub rate limit exceeded")
     r.raise_for_status()
     return r.json()
 
@@ -233,30 +215,26 @@ def gh_get_file_sha(path: str) -> Optional[str]:
 
 def gh_put_file(path: str, content_bytes: bytes, message: str, sha: Optional[str] = None):
     url = f"https://api.github.com/repos/{_gh_repo()}/contents/{path}"
-    payload = {"message": message,
-               "content": base64.b64encode(content_bytes).decode("utf-8"),
+    payload = {"message": message, "content": base64.b64encode(content_bytes).decode("utf-8"),
                "branch": _gh_branch()}
-    if sha:
-        payload["sha"] = sha
+    if sha: payload["sha"] = sha
     r = requests.put(url, headers=_gh_headers(), json=payload, timeout=30)
     if r.status_code not in (200, 201):
-        raise RuntimeError(f"Falha ao salvar no GitHub ({r.status_code}): {r.text}")
+        raise RuntimeError(f"Falha ao salvar no GitHub ({r.status_code})")
     return r.json()
 
 def gh_save_snapshot(xls_bytes: bytes, author: Optional[str] = None) -> dict:
     root = _gh_root().rstrip("/")
     now  = dt.datetime.now(dt.timezone.utc)
-    yyyy = now.strftime("%Y")
-    mm   = now.strftime("%m")
-    stamp = now.strftime("%Y%m%d-%H%M%S")
+    yyyy = now.strftime("%Y"); mm = now.strftime("%m"); stamp = now.strftime("%Y%m%d-%H%M%S")
     excel_rel_path = f"{root}/{yyyy}/{mm}/validado-{stamp}.xlsx"
     gh_put_file(excel_rel_path, xls_bytes, f"[streamlit] snapshot {stamp} (autor={author or 'anon'})", None)
-    latest = {"saved_at_utc": now.isoformat().replace("+00:00","Z"),
-              "author": author or "", "path": excel_rel_path}
+    latest = {"saved_at_utc": now.isoformat().replace("+00:00","Z")}
+    # atualiza latest.json sem expor detalhes na UI
     latest_path = f"{root}/latest.json"
     sha_old = gh_get_file_sha(latest_path)
     gh_put_file(latest_path, json.dumps(latest, ensure_ascii=False, indent=2).encode("utf-8"),
-                f"[streamlit] update latest -> {excel_rel_path}", sha_old)
+                "[streamlit] update latest timestamp", sha_old)
     return latest
 
 def load_latest_meta() -> Optional[dict]:
@@ -281,29 +259,10 @@ def _cached_list_all_xlsx(path: str, ttl: int = 300) -> List[str]:
     return data
 
 def load_latest_snapshot_df() -> Optional[pd.DataFrame]:
-    # 1) pelo latest.json (raw)
-    try:
-        meta = load_latest_meta()
-        if meta and meta.get("path"):
-            raw = f"https://raw.githubusercontent.com/{_gh_repo()}/{_gh_branch()}/{meta['path']}"
-            df = pd.read_excel(raw)
-            keep = ["site_nome","data","status","observacao","validador","data_validacao"]
-            df = df[[c for c in keep if c in df.columns]].copy()
-            df["data"]           = pd.to_datetime(df["data"], errors="coerce").dt.date
-            df["data_validacao"] = pd.to_datetime(df.get("data_validacao", pd.NaT), errors="coerce")
-            df["observacao"]     = df.get("observacao","").astype(str)
-            df["validador"]      = df.get("validador","").astype(str)
-            df["status"]         = df.get("status","Pendente").astype(str)
-            df["yyyymm"]         = pd.to_datetime(df["data"]).dt.strftime("%Y-%m")
-            return df.sort_values(["data","site_nome"]).reset_index(drop=True)
-    except Exception as e:
-        st.warning(f"Falhou ao baixar pelo latest.json: {e}")
-
-    # 2) fallback via API (com cache)
+    # tenta pegar o mais recente via API listagem (mantém sem expor paths)
     try:
         all_files = _cached_list_all_xlsx(_gh_root(), ttl=300)
-        if not all_files:
-            return None
+        if not all_files: return None
         all_files.sort(reverse=True)
         latest = all_files[0]
         raw = f"https://raw.githubusercontent.com/{_gh_repo()}/{_gh_branch()}/{latest}"
@@ -317,15 +276,14 @@ def load_latest_snapshot_df() -> Optional[pd.DataFrame]:
         df["status"]         = df.get("status","Pendente").astype(str)
         df["yyyymm"]         = pd.to_datetime(df["data"]).dt.strftime("%Y-%m")
         return df.sort_values(["data","site_nome"]).reset_index(drop=True)
-    except Exception as e:
-        st.warning(f"Não consegui listar via API do GitHub: {e}")
+    except Exception:
         return None
 
 # ============================================================================
 # AUTO-LOAD ESTADO
 # ============================================================================
 if "df_validado" not in st.session_state:
-    with st.spinner("Carregando último arquivo salvo no GitHub..."):
+    with st.spinner("Carregando dados..."):
         st.session_state.df_validado = load_latest_snapshot_df()
         st.session_state.ultimo_meta = load_latest_meta()
 
@@ -338,16 +296,9 @@ dfv = st.session_state.df_validado
 # ============================================================================
 # HELPERS
 # ============================================================================
-PT_MESES = [
-    "janeiro","fevereiro","março","abril","maio","junho",
-    "julho","agosto","setembro","outubro","novembro","dezembro"
-]
+PT_MESES = ["janeiro","fevereiro","março","abril","maio","junho","julho","agosto","setembro","outubro","novembro","dezembro"]
 def mes_label_pt(yyyymm: str) -> str:
-    y, m = yyyymm.split("-")
-    return f"{PT_MESES[int(m)-1].capitalize()} de {y}"
-
-def _editor_key(sites: List[str], mes: str) -> str:
-    return f"ed_{mes}_{abs(hash(tuple(sites)))%100000}"
+    y, m = yyyymm.split("-"); return f"{PT_MESES[int(m)-1].capitalize()} de {y}"
 
 # ============================================================================
 # SIDEBAR
@@ -359,22 +310,12 @@ with st.sidebar:
         st.switch_page("app.py")
     st.markdown("---")
 
-    # ======= SOMENTE 1 LINK + badge de módulo ativo =======
     st.header("📚 Módulo")
     st.page_link("pages/2_Geoportal.py", label="🗺️ Geoportal")
     st.markdown(
         """
-<div style="
-  margin-top: 10px;
-  background-color: #eef6f9;
-  padding: 12px 14px;
-  border-radius: 10px;
-  font-size: 0.95rem;
-  color: #0a4b68;
-  font-weight: 600;
-  display: flex;
-  align-items: center;
-  border: 1px solid #d7ecf3;">
+<div style="margin-top:10px;background:#eef6f9;padding:12px 14px;border-radius:10px;
+  font-size:.95rem;color:#0a4b68;font-weight:600;display:flex;align-items:center;border:1px solid #d7ecf3;">
   📍 Módulo ativo:&nbsp;<span>Cronograma de Passes de Satélites</span>
 </div>
 """,
@@ -396,24 +337,29 @@ with st.sidebar:
     st.session_state["usuario_logado"] = autor_atual or "—"
 
 # ============================================================================
-# APP BAR
+# APP BAR (com status do GitHub)
 # ============================================================================
-meta_html = ""
-if "ultimo_meta" in st.session_state and st.session_state.ultimo_meta:
-    meta = st.session_state.ultimo_meta
-    meta_html = f'Último autor: {meta.get("author","—")} · Salvo (UTC): {meta.get("saved_at_utc","")} · <code>{meta.get("path","")}</code>'
+gh_ok = _ping_github()
+badge = (
+    '<span class="status-badge status-ok">🟢 Conexão OK</span>'
+    if gh_ok else
+    '<span class="status-badge status-err">🔴 Sem conexão</span>'
+)
+ult_meta = st.session_state.get("ultimo_meta") or {}
+ult_ts = ult_meta.get("saved_at_utc", "").replace("T", " ").replace("Z"," UTC")
+meta_html = f'Última atualização em: {ult_ts}' if ult_ts else 'Última atualização em: —'
 
 st.markdown(
     f"""
 <div class="appbar"><div class="appbar-inner">
   <div><h1>Calendário de Validação</h1><div class="meta">{meta_html}</div></div>
-  <div class="actions"></div>
+  <div>{badge}</div>
 </div></div>
 """,
     unsafe_allow_html=True,
 )
 
-# Mensagem pós-salvamento
+# Mensagem pós-salvamento (sem path)
 if st.session_state.get("__last_save_ok"):
     st.success(st.session_state.pop("__last_save_ok"))
 
@@ -440,9 +386,7 @@ view["data_validacao"] = view["data_validacao"].apply(
 colcfg = {
     "site_nome": st.column_config.TextColumn("Site", disabled=True, width="medium"),
     "data": st.column_config.TextColumn("Data", disabled=True, width="small"),
-    "status": st.column_config.SelectboxColumn(
-        "Status", options=["Pendente","Aprovada","Rejeitada"], required=True, width="small"
-    ),
+    "status": st.column_config.SelectboxColumn("Status", options=["Pendente","Aprovada","Rejeitada"], required=True, width="small"),
     "observacao": st.column_config.TextColumn("Observação", width="medium"),
     "validador": st.column_config.TextColumn("Validador", width="small"),
     "data_validacao": st.column_config.TextColumn("Data validação", disabled=True, width="medium"),
@@ -450,12 +394,8 @@ colcfg = {
 
 editor_key = f"ed_{mes_ano}_{abs(hash(tuple(sel_sites)))%100000}"
 edited = st.data_editor(
-    view,
-    num_rows="fixed",
-    width='stretch',
-    column_config=colcfg,
-    disabled=["site_nome","data","data_validacao"],
-    key=editor_key,
+    view, num_rows="fixed", width='stretch', column_config=colcfg,
+    disabled=["site_nome","data","data_validacao"], key=editor_key,
 )
 
 st.markdown("</div>", unsafe_allow_html=True)
@@ -474,7 +414,7 @@ if unsaved > 0:
     st.markdown(f'<div class="unsaved"><strong>{unsaved}</strong> alteração(ões) não salvas.</div>', unsafe_allow_html=True)
 
 # ============================================================================
-# SALVAR (1 botão) + auto-refresh
+# SALVAR (sem expor path) + atualiza "última atualização"
 # ============================================================================
 def _exportar_excel_bytes(df: pd.DataFrame) -> bytes:
     cols = ["site_nome","data","status","observacao","validador","data_validacao"]
@@ -485,8 +425,7 @@ def _exportar_excel_bytes(df: pd.DataFrame) -> bytes:
     buf = io.BytesIO()
     with pd.ExcelWriter(buf, engine="openpyxl") as writer:
         out.to_excel(writer, index=False, sheet_name="validacao")
-    buf.seek(0)
-    return buf.read()
+    buf.seek(0); return buf.read()
 
 def _aplicar_salvamento(edited_df: pd.DataFrame):
     base = st.session_state.df_validado.copy()
@@ -513,9 +452,11 @@ def _aplicar_salvamento(edited_df: pd.DataFrame):
         xlsb = _exportar_excel_bytes(merged)
         meta = gh_save_snapshot(xlsb, author=st.session_state.get("usuario_logado",""))
         st.session_state.ultimo_meta = meta
-        st.session_state["__last_save_ok"] = f"Publicado no GitHub: `{meta['path']}` (UTC: {meta['saved_at_utc']})"
+        # ✅ mensagem amigável, sem path
+        stamp = meta.get("saved_at_utc","").replace("T"," ").replace("Z"," UTC")
+        st.session_state["__last_save_ok"] = f"Última atualização em {stamp}"
     except Exception as e:
-        st.session_state["__last_save_ok"] = f"Salvou localmente, mas falhou ao publicar no GitHub: {e}"
+        st.session_state["__last_save_ok"] = f"Atualização local concluída. Publicação remota indisponível."
     _rerun()
 
 save_clicked = st.button("💾 Salvar alterações", type="primary", disabled=(unsaved == 0))
@@ -543,17 +484,16 @@ if dias_disponiveis:
             xlsb = _exportar_excel_bytes(base)
             meta = gh_save_snapshot(xlsb, author=st.session_state.get("usuario_logado",""))
             st.session_state.ultimo_meta = meta
-            st.session_state["__last_save_ok"] = f"{msg_ok} em {d_sel}. Publicado: `{meta['path']}`"
-        except Exception as e:
-            st.session_state["__last_save_ok"] = f"{msg_ok} em {d_sel}. Falhou ao publicar no GitHub: {e}"
+            stamp = meta.get("saved_at_utc","").replace("T"," ").replace("Z"," UTC")
+            st.session_state["__last_save_ok"] = f"{msg_ok} em {d_sel}. Última atualização em {stamp}"
+        except Exception:
+            st.session_state["__last_save_ok"] = f"{msg_ok} em {d_sel}. Publicação remota indisponível."
         _rerun()
 
     with cA:
-        if st.button("✅ Aprovar tudo do dia"):
-            _lote("Aprovada", "Aprovado tudo")
+        if st.button("✅ Aprovar tudo do dia"): _lote("Aprovada", "Aprovado tudo")
     with cB:
-        if st.button("⛔ Rejeitar tudo do dia"):
-            _lote("Rejeitada", "Rejeitado tudo")
+        if st.button("⛔ Rejeitar tudo do dia"): _lote("Rejeitada", "Rejeitado tudo")
 else:
     st.caption("Sem passagens no mês/site(s) filtrados.")
 
@@ -600,7 +540,7 @@ def montar_calendario(df_mes: pd.DataFrame, mes_ano: str,
     for r in range(6):
         for c in range(7):
             d = grid[r, c]
-            if d is None:
+            if d is None: 
                 continue
             fill = cor_do_dia(d)
             fig.add_shape(type="rect", x0=c, x1=c+1, y0=5-r, y1=6-r,
@@ -639,32 +579,3 @@ fig = montar_calendario(fdf, mes_ano, only_color_with_events=True, show_badges=T
 st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
 
 st.markdown("</div>", unsafe_allow_html=True)  # fecha card
-
-# ============================================================================
-# CARD: EXPORTAR / DIAGNÓSTICO
-# ============================================================================
-st.markdown('<div class="card"><h3>⬇️ Exportar arquivo validado</h3>', unsafe_allow_html=True)
-colA, colB = st.columns([1,2])
-with colA:
-    nome_arquivo = st.text_input("Nome do arquivo", value="passagens_validado.xlsx")
-with colB:
-    xlsb = _exportar_excel_bytes(st.session_state.df_validado)
-    st.download_button("Baixar Excel validado", data=xlsb, file_name=nome_arquivo,
-                       mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-st.markdown("</div>", unsafe_allow_html=True)
-
-with st.expander("🔧 Diagnóstico GitHub", expanded=False):
-    snap = {
-        "GITHUB_TOKEN|github_token": bool(_gh_token()),
-        "REPO_CRONOGRAMA|github_repo": bool(_gh_repo()),
-        "GITHUB_BRANCH|github_branch": bool(_gh_branch()),
-        "GH_DATA_ROOT|gh_data_root|data_root": bool(_gh_root()),
-    }
-    st.write("Config detectada:", snap)
-    st.write("Repo:", _gh_repo())
-    st.write("Branch:", _gh_branch())
-    st.write("Raiz:", _gh_root())
-    if st.button("🔄 Recarregar último snapshot do GitHub"):
-        st.session_state.df_validado = load_latest_snapshot_df()
-        st.session_state.ultimo_meta = load_latest_meta()
-        _rerun()
