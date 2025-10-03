@@ -266,10 +266,10 @@ left, right = st.columns([1.15, 1], gap="large")
 
 with left:
     # Logo (se existir)
-    for cand in ("dapatlas.png", "logo.png", "logomavipe.jpeg"):
-        if Path(cand).exists():
-            st.image(Image.open(cand), width=180)
-            break
+   # for cand in ("dapatlas.png", "logo.png", "logomavipe.jpeg"):
+   #     if Path(cand).exists():
+  #          st.image(Image.open(cand), width=180)
+    #        break
 
     st.caption(t["eyebrow"])
     st.markdown(f"<div class='hero-title'>{t['title']}</div>", unsafe_allow_html=True)
