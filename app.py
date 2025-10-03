@@ -124,7 +124,7 @@ TXT = {
 t = TXT["pt" if is_pt else "en"]
 
 # =============================================================================
-# CSS global + Background
+# CSS global + Background (se existir)
 # =============================================================================
 _bg = _bg_data_uri()
 
@@ -184,16 +184,23 @@ div[data-testid="collapsedControl"]{{display:block!important;}}
 }}
 
 /* 🛠️ Patch 1: remove o retângulo fantasma (autofocus) antes do 1º input */
-section[data-testid="stTextInputRoot"] > div:empty {{
+section[data-testid="stTextInputRoot"] > div:empty,
+div[data-testid="stTextInput"] > div:empty {{
   display: none !important;
 }}
 
-/* 🛠️ Patch 2: mata o overlay/autofill branco Edge/Chrome (modo seguro) */
+/* 🛠️ Patch 2: neutraliza autofill/overlay em todos os navegadores */
 [data-testid="stTextInput"] > div > div,
 [data-baseweb="input"] {{
   background: transparent !important;
   box-shadow: none !important;
 }}
+[data-testid="stTextInput"] input {{
+  background: transparent !important;
+  box-shadow: none !important;
+  outline: none !important;
+}}
+/* WebKit (Chrome/Edge/Safari) */
 input:-webkit-autofill,
 input:-webkit-autofill:hover,
 input:-webkit-autofill:focus {{
@@ -203,11 +210,21 @@ input:-webkit-autofill:focus {{
   appearance: none !important;
   background-clip: content-box !important;
   caret-color: #111 !important;
+  transition: background-color 9999s ease-out, color 9999s ease-out;
 }}
-[data-testid="stTextInput"] input {{
-  background: transparent !important;
-  box-shadow: none !important;
+/* Firefox */
+input:-moz-autofill {{
+  box-shadow: 0 0 0 1000px transparent inset !important;
+  -moz-text-fill-color: #111 !important;
+}}
+/* iOS Chrome/Safari: botão de auto-fill de contatos */
+input::-webkit-contacts-auto-fill-button {{
+  visibility: hidden; display: none !important; pointer-events: none;
+}}
+/* Evita glow/borda em foco que lembra “placa” */
+[data-testid="stTextInput"] input:focus-visible {{
   outline: none !important;
+  box-shadow: none !important;
 }}
 </style>
 """,
@@ -315,7 +332,6 @@ with left:
 with right:
     st.markdown("<div id='login' class='login-card'>", unsafe_allow_html=True)
     st.subheader(t["secure_access"])
-    # (para evitar autofocus branco: um spacer mínimo também ajuda, mas o CSS já cobre)
     username = st.text_input(t["username"])
     password = st.text_input(t["password"], type="password")
     c1, c2 = st.columns([1, 1])
@@ -323,24 +339,55 @@ with right:
     if c2.button(t["forgot"]):
         st.info(t["forgot_msg"])
     st.caption(t["confidential"])
-    st.markdown("</div>", unsafe_allow_html=True)
 
-# 🧰 Anti-autofill JS (complementar; seguro)
-st.markdown("""
-<script>
-for (const el of document.querySelectorAll('input[type="text"], input[type="password"]')) {
-  el.setAttribute('autocomplete', 'off');
-  el.setAttribute('autocapitalize', 'none');
-  el.setAttribute('autocorrect', 'off');
-  el.setAttribute('spellcheck', 'false');
-  // Troca o name para reduzir intromissão do gerenciador de senhas
-  el.setAttribute('name', 'fld_' + Math.random().toString(36).slice(2));
-}
-for (const el of document.querySelectorAll('input[type="password"]')) {
-  el.setAttribute('autocomplete', 'new-password');
-}
-</script>
-""", unsafe_allow_html=True)
+    # --- KILL WHITE OVERLAY (Chrome/Edge/Firefox/Safari) ---
+    st.markdown("""
+    <style>
+    section[data-testid="stTextInputRoot"] > div:empty,
+    div[data-testid="stTextInput"] > div:empty { display:none !important; }
+    [data-testid="stTextInput"] > div > div,
+    [data-baseweb="input"] { background:transparent !important; box-shadow:none !important; }
+    [data-testid="stTextInput"] input { background:transparent !important; box-shadow:none !important; outline:none !important; }
+    input:-webkit-autofill,
+    input:-webkit-autofill:hover,
+    input:-webkit-autofill:focus {
+      -webkit-box-shadow:0 0 0 1000px transparent inset !important;
+      box-shadow:0 0 0 1000px transparent inset !important;
+      -webkit-text-fill-color:#111 !important;
+      appearance:none !important;
+      background-clip:content-box !important;
+      caret-color:#111 !important;
+      transition: background-color 9999s ease-out, color 9999s ease-out;
+    }
+    input:-moz-autofill { box-shadow:0 0 0 1000px transparent inset !important; -moz-text-fill-color:#111 !important; }
+    input::-webkit-contacts-auto-fill-button { visibility:hidden; display:none !important; pointer-events:none; }
+    [data-testid="stTextInput"] input:focus-visible { outline:none !important; box-shadow:none !important; }
+    </style>
+    <script>
+    (function(){
+      const fields = Array.from(document.querySelectorAll('input[type="text"], input[type="password"]')));
+      for (const el of fields) {
+        el.setAttribute('autocomplete','off');
+        el.setAttribute('autocapitalize','none');
+        el.setAttribute('autocorrect','off');
+        el.setAttribute('spellcheck','false');
+        el.setAttribute('name','fld_'+Math.random().toString(36).slice(2));
+        el.setAttribute('inputmode','latin');
+      }
+      for (const el of fields) {
+        el.readOnly = true;
+        el.addEventListener('focus', () => { el.readOnly = false; }, { once:true });
+      }
+      const ghost = document.createElement('form');
+      ghost.style.display = 'none';
+      ghost.setAttribute('autocomplete','off');
+      ghost.innerHTML = '<input type="text" name="username"><input type="password" name="password" autocomplete="new-password">';
+      document.body.prepend(ghost);
+    })();
+    </script>
+    """, unsafe_allow_html=True)
+
+    st.markdown("</div>", unsafe_allow_html=True)
 
 # =============================================================================
 # Autenticação
@@ -421,7 +468,7 @@ if st.session_state.get("authentication_status") and not st.session_state.get("m
             try:
                 st.switch_page(target)
             except Exception:
-                pass  # fallback: usa os atalhos da sidebar
+                pass  # fallback
 
 # =============================================================================
 # Rodapé
