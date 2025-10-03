@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# app.py — Login + i18n + troca de senha + reset + redirecionamento + BG
+# app.py — Login + i18n + troca de senha + reset + redirecionamento + BG (fix CSS)
 
 import os
 import io
@@ -35,7 +35,7 @@ if GITHUB_TOKEN:
     HEADERS["Authorization"] = f"Bearer {GITHUB_TOKEN}"
 
 # ============================================================================
-# CSS GLOBAL + BACKGROUND
+# BACKGROUND
 # ============================================================================
 def _bg_data_uri():
     here = Path(__file__).parent
@@ -47,6 +47,9 @@ def _bg_data_uri():
 
 _bg = _bg_data_uri()
 
+# ============================================================================
+# CSS FIXO (sem formatação)
+# ============================================================================
 st.markdown("""
 <style>
 /* some resets */
@@ -100,14 +103,7 @@ a { color:#111 !important; text-decoration: underline; }
   margin-top:40px; padding:16px 0; border-top:1px solid #eee; font-size:12px; color:#444!important;
 }
 
-/* BACKGROUND como camada ao fundo */
-[data-testid="stAppViewContainer"]::before {
-  content:""; position:fixed; inset:0;
-  z-index:0; pointer-events:none;
-  background:#f5f5f5 %(bg)s no-repeat center top;
-  background-size: clamp(900px, 85vw, 1600px) auto;
-  opacity:.50; filter: contrast(103%) brightness(101%);
-}
+/* camadas para o BG que será injetado abaixo */
 .block-container, [data-testid="stSidebar"], header, footer { position:relative; z-index:1; }
 
 /* ---------------- PÍLULA DE IDIOMA (flags + toggle) ---------------- */
@@ -132,9 +128,26 @@ a { color:#111 !important; text-decoration: underline; }
 .lang-pill [data-testid="stToggle"] label { margin-bottom:0 !important; }
 @media (max-width:640px){ .lang-pill{ padding:4px 8px; gap:8px; } }
 </style>
-""" % {"bg": f'url("{_bg}")' if _bg else ""}, unsafe_allow_html=True)
+""", unsafe_allow_html=True)
 
-# Render da pílula de idioma
+# BG (injetado num style separado para não conflitar com % / formatação)
+if _bg:
+    st.markdown(
+        f"""
+<style>
+[data-testid="stAppViewContainer"]::before {{
+  content:"";
+  position:fixed; inset:0; z-index:0; pointer-events:none;
+  background:#f5f5f5 url("{_bg}") no-repeat center top;
+  background-size: clamp(900px, 85vw, 1600px) auto;
+  opacity:.50; filter: contrast(103%) brightness(101%);
+}}
+</style>
+""",
+        unsafe_allow_html=True,
+    )
+
+# Render da pílula de idioma (UI)
 if "lang" not in st.session_state:
     st.session_state.lang = "pt"
 
@@ -145,7 +158,8 @@ st.markdown("""
   <span style="opacity:.75">EN</span><span>🇬🇧</span>
 </div>
 """, unsafe_allow_html=True)
-# toggle invisível mas funcional no mesmo canto
+
+# toggle funcional (posicionado junto à pílula)
 lang_holder = st.empty()
 with lang_holder.container():
     st.markdown("<div style='position:fixed;top:14px;left:96px;z-index:1002;'>", unsafe_allow_html=True)
@@ -338,12 +352,11 @@ if forgot_clicked:
         else:
             import secrets
             code = secrets.token_urlsafe(8)
-            # Armazena código no registro do usuário (se existir)
+            # procura por username ou e-mail
             key = None
             if "users" in users_cfg and u in users_cfg["users"]:
                 key = u
             else:
-                # Permite buscar por e-mail
                 for k, rec in users_cfg["users"].items():
                     if str(rec.get("email","")).strip().lower() == u.strip().lower():
                         key = k
@@ -352,7 +365,7 @@ if forgot_clicked:
                 users_cfg["users"][key]["reset_code"] = code
                 ok = save_users(users_cfg, f"Password reset code for {key}", users_sha)
                 if ok:
-                    st.success(t["code_ok"] + f" (code: **{code}**)")  # mostra o code (remova em produção)
+                    st.success(t["code_ok"] + f" (code: **{code}**)")
                 else:
                     st.error("Falha ao salvar no GitHub.")
             else:
