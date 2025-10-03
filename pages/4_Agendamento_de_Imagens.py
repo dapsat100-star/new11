@@ -1,70 +1,58 @@
 # -*- coding: utf-8 -*-
-# pages/2_Geoportal.py
-# Geoportal — gráfico único + PDF — sidebar fixa (sem colapso) e indicador de módulo ativo
+# pages/4_Agendamento_de_Imagens.py
+# Cronograma de Passes de Satélites — UX estilo SaaS + Sidebar fixa
+# Mantém todo o fluxo (filtros/edição/snapshot GitHub) inalterado.
+
+from __future__ import annotations
 
 import io
+import json
+import time
 import base64
+import os
+import datetime as dt
 from pathlib import Path
-from typing import Dict, List, Tuple, Optional
+from typing import Optional, List, Dict
 
 import numpy as np
 import pandas as pd
-import streamlit as st
 import plotly.graph_objects as go
+import requests
+import streamlit as st
 
-# ===================== CONFIG =====================
-DEFAULT_BASE_URL = "https://raw.githubusercontent.com/dapsat100-star/geoportal/main"
-LOGO_REL_PATH    = "images/logomavipe.jpeg"  # usado no PDF
-# ==================================================
+# ==== Guard de sessão (aceita app novo e legado) ====
+_is_auth = bool(st.session_state.get("user")) or bool(st.session_state.get("authentication_status"))
+if not _is_auth:
+    st.warning("Sessão expirada ou não autenticada.")
+    st.page_link("app.py", label="🔐 Voltar à página de login")
+    st.stop()
 
-# Mapa (opcional)
-try:
-    import folium
-    from streamlit_folium import st_folium
-    HAVE_MAP = True
-except Exception:
-    HAVE_MAP = False
-
-# URL/atribuição do mosaico de satélite (Esri World Imagery)
-ESRI_SAT_URL = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
-ESRI_ATTR    = "Tiles © Esri — Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community"
-
-# PDF deps
-from datetime import datetime, timezone
-from reportlab.pdfgen import canvas
-from reportlab.lib.pagesizes import A4
-from reportlab.lib.utils import ImageReader
-from urllib.request import urlopen
-
-# Fallback de renderização do gráfico para o PDF (Matplotlib)
-import matplotlib
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
-
-# ----------------- Página -----------------
+# ============================================================================
+# CONFIG PÁGINA
+# ============================================================================
 st.set_page_config(
-    page_title="Geoportal — Metano",
+    page_title="🛰️ Cronograma de Passes de Satélites",
+    page_icon="🛰️",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="expanded",
 )
 
-# === CSS global (sidebar larga, sem colapso e sem truncar textos) ===
-st.markdown(
-    """
+# --- Sidebar fixa/visível + sem truncar + sem colapsar ---
+st.markdown("""
 <style>
-/* Esconde cabeçalho nativo */
-header[data-testid="stHeader"] { display: none !important; }
+/* Esconde header padrão do Streamlit */
+header[data-testid="stHeader"]{ display:none !important; }
 
-/* Remove botão de colapso e qualquer header button */
+/* Remove o botão de colapso (hamburger) */
 div[data-testid="collapsedControl"] { display: none !important; }
 button[kind="header"] { display: none !important; }
 
-/* Sidebar SEMPRE visível/expandida e LARGA (400px) */
+/* Força a sidebar aberta, fixa e com altura total + LARGA (400px) */
 section[data-testid="stSidebar"], aside[data-testid="stSidebar"] {
-  display: block !important;
   visibility: visible !important;
   transform: none !important;
   opacity: 1 !important;
+  pointer-events: auto !important;
   width: 400px !important;
   min-width: 400px !important;
   background: #ffffff !important;
@@ -76,14 +64,14 @@ section[data-testid="stSidebar"], aside[data-testid="stSidebar"] {
   z-index: 100;
 }
 
-/* Esconde navegação multipágina automática */
+/* Esconde a navegação automática da sidebar (usaremos page_link) */
 div[data-testid="stSidebarNav"] { display: none !important; }
 section[data-testid="stSidebar"] nav,
 section[data-testid="stSidebar"] [role="navigation"] { display: none !important; }
 
-/* Não truncar textos */
+/* NÃO truncar texto de links */
 section[data-testid="stSidebar"] a[role="link"],
-section[data-testid="stSidebar"] [data-testid="stPageLink"] {
+section[data-testid="stSidebar"] [data-testid="stPageLink"]{
   white-space: normal !important;
   overflow: visible !important;
   text-overflow: clip !important;
@@ -92,44 +80,271 @@ section[data-testid="stSidebar"] [data-testid="stPageLink"] {
   word-break: break-word !important;
 }
 
-/* Logo fixo topo-direito */
-#top-right-logo { position: fixed; top: 12px; right: 16px; z-index: 1000; }
+/* App bar */
+.appbar {position: sticky; top: 0; z-index: 50; background:#ffffffcc; backdrop-filter: blur(8px);
+  border-bottom:1px solid #eef0f3; margin-bottom:8px;}
+.appbar-inner {display:flex; align-items:center; justify-content:space-between; padding:10px 0;}
+.appbar h1 {font-size:1.6rem; margin:0;}
+.appbar .meta {color:#6b7280; font-size:.9rem;}
 
-/* Aproxima conteúdo do topo */
-main.block-container { padding-top: 0.0rem !important; }
+/* Cards */
+.card {background:#fff; border:1px solid #eef0f3; border-radius:16px;
+  box-shadow:0 1px 2px rgba(16,24,40,.04); padding:16px; margin:12px 0;}
+.card h3 {margin:0 0 8px 0; font-size:1.1rem}
 
-/* Largura mínima da sidebar (compat) */
-@media (max-width: 3000px){
-  section[data-testid="stSidebar"]{ min-width: 400px !important; }
+/* Tabela: cabeçalho sticky */
+[data-testid="stTable"] thead tr {position: sticky; top: 48px; background:#fff; z-index:5; box-shadow:0 1px 0 #eef0f3;}
+
+/* Barra de aviso */
+.unsaved {background:#fff; border:1px solid #e5e7eb; border-radius:14px; padding:10px 14px;
+  box-shadow:0 8px 24px rgba(16,24,40,.12); display:flex; gap:10px; align-items:center;}
+
+/* ===== Sidebar: inputs/chips com contornos visíveis ===== */
+section[data-testid="stSidebar"] {
+  --sb-border: #d1d5db;
+  --sb-border-strong: #9ca3af;
+  --sb-bg: #fafafa;
+  --sb-bg-focus: #ffffff;
+  --sb-focus-ring: rgba(31,111,235,.18);
 }
+section[data-testid="stSidebar"] div[data-baseweb="select"] > div {
+  border: 1.5px solid var(--sb-border) !important;
+  background: var(--sb-bg) !important;
+  border-radius: 10px !important;
+  transition: border-color .15s ease, box-shadow .15s ease, background .15s ease;
+}
+section[data-testid="stSidebar"] div[data-baseweb="select"] > div:hover {
+  border-color: var(--sb-border-strong) !important;
+}
+section[data-testid="stSidebar"] div[data-baseweb="select"] > div:focus-within {
+  border-color: #1f6feb !important;
+  background: var(--sb-bg-focus) !important;
+  box-shadow: 0 0 0 3px var(--sb-focus-ring) !important;
+}
+section[data-testid="stSidebar"] div[data-baseweb="tag"] {
+  background: #ffffff !important;
+  color: #111827 !important;
+  border: 1.2px solid var(--sb-border) !important;
+  box-shadow: 0 1px 0 rgba(0,0,0,.04) !important;
+  border-radius: 10px !important;
+}
+section[data-testid="stSidebar"] div[data-baseweb="tag"]:hover {
+  border-color: var(--sb-border-strong) !important;
+}
+section[data-testid="stSidebar"] div[data-baseweb="tag"] svg { fill: #6b7280 !important; }
+section[data-testid="stSidebar"] div[data-baseweb="tag"]:hover svg { fill: #374151 !important; }
+section[data-testid="stSidebar"] h2, 
+section[data-testid="stSidebar"] h3 { color: #111827 !important; }
+
+/* Conteúdo principal mais largo */
+.reportview-container .main .block-container {max-width: 1320px; padding-top: .6rem; padding-bottom: 4rem;}
 </style>
-""",
-    unsafe_allow_html=True,
-)
+""", unsafe_allow_html=True)
 
-# === Logo no canto superior direito ===
-logo_ui_path = Path(__file__).parent / "logomavipe.jpeg"
-if logo_ui_path.exists():
-    b64_logo = base64.b64encode(logo_ui_path.read_bytes()).decode("ascii")
-    st.markdown(
-        f"<div id='top-right-logo'><img src='data:image/jpeg;base64,{b64_logo}' width='120'/></div>",
-        unsafe_allow_html=True,
-    )
+# ============================================================================
+# RERUN compatível
+# ============================================================================
+def _rerun():
+    if hasattr(st, "rerun"):
+        st.rerun()
+    else:
+        st.experimental_rerun()
 
-st.title("📷 Geoportal de Metano — gráfico único")
+# ============================================================================
+# LOGO (opcional)
+# ============================================================================
+def _logo_b64_from(path: str) -> Optional[str]:
+    p = Path(path)
+    if not p.exists(): return None
+    try:
+        return base64.b64encode(p.read_bytes()).decode("utf-8")
+    except Exception:
+        return None
 
-# ---- Guard de sessão (compatível com app novo e legado) ----
-is_auth = bool(st.session_state.get("user")) or bool(st.session_state.get("authentication_status"))
-user_name = st.session_state.get("name") or st.session_state.get("username") or st.session_state.get("user")
+_LOGO_B64 = _logo_b64_from("logomavipe.jpeg")
+if _LOGO_B64:
+    st.markdown(f"""
+    <div style="position:fixed;top:12px;right:20px;z-index:9999;pointer-events:none">
+      <img src="data:image/jpeg;base64,{_LOGO_B64}" style="height:100px;width:auto;opacity:.98"/>
+    </div>
+    """, unsafe_allow_html=True)
 
-if not is_auth:
-    st.warning("Sessão expirada ou não autenticada.")
-    st.page_link("app.py", label="🔐 Voltar à página de login")
+# ============================================================================
+# GITHUB utils (token + fallback + cache) — compatível com nomes antigos/novos
+# ============================================================================
+def _conf_get(*keys, default: str = "") -> str:
+    """Procura na ordem: os.environ -> st.secrets, aceitando vários aliases."""
+    for k in keys:
+        v = os.getenv(k)
+        if v:
+            return str(v)
+        try:
+            v = st.secrets.get(k)
+            if v:
+                return str(v)
+        except Exception:
+            pass
+    return default
+
+def _gh_token() -> str:
+    return _conf_get("GITHUB_TOKEN", "github_token")
+
+def _gh_repo() -> str:
+    # novo nome: REPO_CRONOGRAMA; antigo: github_repo
+    return _conf_get("REPO_CRONOGRAMA", "github_repo")
+
+def _gh_branch() -> str:
+    return _conf_get("GITHUB_BRANCH", "github_branch", default="main")
+
+def _gh_root() -> str:
+    # novo: GH_DATA_ROOT; antigos: gh_data_root | data_root
+    return _conf_get("GH_DATA_ROOT", "gh_data_root", "data_root", default="data/validado")
+
+def _gh_headers() -> Dict[str, str]:
+    h = {"Accept": "application/vnd.github+json"}
+    tok = _gh_token()
+    if tok:
+        h["Authorization"] = f"Bearer {tok}"
+    return h
+
+def _list_contents(path: str):
+    url = f"https://api.github.com/repos/{_gh_repo()}/contents/{path}?ref={_gh_branch()}"
+    r = requests.get(url, headers=_gh_headers(), timeout=20)
+    if r.status_code == 403 and "rate limit" in r.text.lower():
+        raise RuntimeError("GitHub rate limit exceeded ao listar conteúdos")
+    r.raise_for_status()
+    return r.json()
+
+def _list_all_xlsx(path: str) -> List[str]:
+    files: List[str] = []
+    for it in _list_contents(path):
+        if it["type"] == "file" and it["name"].lower().endswith(".xlsx"):
+            files.append(it["path"])
+        elif it["type"] == "dir":
+            files.extend(_list_all_xlsx(it["path"]))
+    return files
+
+def gh_get_file_sha(path: str) -> Optional[str]:
+    url = f"https://api.github.com/repos/{_gh_repo()}/contents/{path}?ref={_gh_branch()}"
+    r = requests.get(url, headers=_gh_headers(), timeout=20)
+    return r.json().get("sha") if r.status_code == 200 else None
+
+def gh_put_file(path: str, content_bytes: bytes, message: str, sha: Optional[str] = None):
+    url = f"https://api.github.com/repos/{_gh_repo()}/contents/{path}"
+    payload = {"message": message,
+               "content": base64.b64encode(content_bytes).decode("utf-8"),
+               "branch": _gh_branch()}
+    if sha: payload["sha"] = sha
+    r = requests.put(url, headers=_gh_headers(), json=payload, timeout=30)
+    if r.status_code not in (200, 201):
+        raise RuntimeError(f"Falha ao salvar no GitHub ({r.status_code}): {r.text}")
+    return r.json()
+
+def gh_save_snapshot(xls_bytes: bytes, author: Optional[str] = None) -> dict:
+    root = _gh_root().rstrip("/")
+    now  = dt.datetime.now(dt.timezone.utc)
+    yyyy = now.strftime("%Y"); mm = now.strftime("%m"); stamp = now.strftime("%Y%m%d-%H%M%S")
+    excel_rel_path = f"{root}/{yyyy}/{mm}/validado-{stamp}.xlsx"
+    gh_put_file(excel_rel_path, xls_bytes, f"[streamlit] snapshot {stamp} (autor={author or 'anon'})", None)
+    latest = {"saved_at_utc": now.isoformat().replace("+00:00","Z"),
+              "author": author or "", "path": excel_rel_path}
+    latest_path = f"{root}/latest.json"
+    sha_old = gh_get_file_sha(latest_path)
+    gh_put_file(latest_path, json.dumps(latest, ensure_ascii=False, indent=2).encode("utf-8"),
+                f"[streamlit] update latest -> {excel_rel_path}", sha_old)
+    return latest
+
+def load_latest_meta() -> Optional[dict]:
+    try:
+        root = _gh_root().rstrip("/")
+        url = f"https://raw.githubusercontent.com/{_gh_repo()}/{_gh_branch()}/{root}/latest.json"
+        r = requests.get(url, timeout=20)
+        return r.json() if r.status_code == 200 else None
+    except Exception:
+        return None
+
+def _cached_list_all_xlsx(path: str, ttl: int = 300) -> List[str]:
+    key = "_cache_list_all_xlsx"
+    now = time.time()
+    cache = st.session_state.get(key, {})
+    entry = cache.get(path)
+    if entry and (now - entry["ts"] < ttl):
+        return entry["data"]
+    data = _list_all_xlsx(path)
+    cache[path] = {"ts": now, "data": data}
+    st.session_state[key] = cache
+    return data
+
+def load_latest_snapshot_df() -> Optional[pd.DataFrame]:
+    # 1) pelo latest.json (raw)
+    try:
+        meta = load_latest_meta()
+        if meta and meta.get("path"):
+            raw = f"https://raw.githubusercontent.com/{_gh_repo()}/{_gh_branch()}/{meta['path']}"
+            df = pd.read_excel(raw)
+            keep = ["site_nome","data","status","observacao","validador","data_validacao"]
+            df = df[[c for c in keep if c in df.columns]].copy()
+            df["data"]           = pd.to_datetime(df["data"], errors="coerce").dt.date
+            df["data_validacao"] = pd.to_datetime(df.get("data_validacao", pd.NaT), errors="coerce")
+            df["observacao"]     = df.get("observacao","").astype(str)
+            df["validador"]      = df.get("validador","").astype(str)
+            df["status"]         = df.get("status","Pendente").astype(str)
+            df["yyyymm"]         = pd.to_datetime(df["data"]).dt.strftime("%Y-%m")
+            return df.sort_values(["data","site_nome"]).reset_index(drop=True)
+    except Exception as e:
+        st.warning(f"Falhou ao baixar pelo latest.json: {e}")
+
+    # 2) fallback via API (com cache)
+    try:
+        all_files = _cached_list_all_xlsx(_gh_root(), ttl=300)
+        if not all_files:
+            return None
+        all_files.sort(reverse=True)
+        latest = all_files[0]
+        raw = f"https://raw.githubusercontent.com/{_gh_repo()}/{_gh_branch()}/{latest}"
+        df = pd.read_excel(raw)
+        keep = ["site_nome","data","status","observacao","validador","data_validacao"]
+        df = df[[c for c in keep if c in df.columns]].copy()
+        df["data"]           = pd.to_datetime(df["data"], errors="coerce").dt.date
+        df["data_validacao"] = pd.to_datetime(df.get("data_validacao", pd.NaT), errors="coerce")
+        df["observacao"]     = df.get("observacao","").astype(str)
+        df["validador"]      = df.get("validador","").astype(str)
+        df["status"]         = df.get("status","Pendente").astype(str)
+        df["yyyymm"]         = pd.to_datetime(df["data"]).dt.strftime("%Y-%m")
+        return df.sort_values(["data","site_nome"]).reset_index(drop=True)
+    except Exception as e:
+        st.warning(f"Não consegui listar via API do GitHub: {e}")
+        return None
+
+# ============================================================================
+# AUTO-LOAD ESTADO
+# ============================================================================
+if "df_validado" not in st.session_state:
+    with st.spinner("Carregando último arquivo salvo no GitHub..."):
+        st.session_state.df_validado = load_latest_snapshot_df()
+        st.session_state.ultimo_meta = load_latest_meta()
+
+if st.session_state.df_validado is None or st.session_state.df_validado.empty:
+    st.info("Nenhum snapshot encontrado no GitHub. Salve ao menos um arquivo em data/validado/.")
     st.stop()
 
-# ================= Sidebar =================
+dfv = st.session_state.df_validado
+
+# ============================================================================
+# HELPERS
+# ============================================================================
+PT_MESES = ["janeiro","fevereiro","março","abril","maio","junho","julho","agosto","setembro","outubro","novembro","dezembro"]
+def mes_label_pt(yyyymm: str) -> str:
+    y, m = yyyymm.split("-"); return f"{PT_MESES[int(m)-1].capitalize()} de {y}"
+
+def _editor_key(sites: List[str], mes: str) -> str:
+    return f"ed_{mes}_{abs(hash(tuple(sites)))%100000}"
+
+# ============================================================================
+# SIDEBAR
+# ============================================================================
 with st.sidebar:
-    st.success(f"Logado como: {user_name or 'usuário'}")
+    st.success(f"Logado como: {st.session_state.get('name') or st.session_state.get('username') or st.session_state.get('user')}")
     if st.button("Sair", use_container_width=True):
         st.session_state.clear()
         st.switch_page("app.py")
@@ -137,7 +352,7 @@ with st.sidebar:
 
     # ======= Apenas 1 link de módulo + indicador do ativo =======
     st.markdown("### 🔗 Módulo")
-    st.page_link("pages/4_Agendamento_de_Imagens.py", label="🛰️ Cronograma de Passes de Satélites")
+    st.page_link("pages/2_Geoportal.py", label="🗺️ Geoportal")
     st.markdown(
         """
         <div style="
@@ -152,537 +367,293 @@ with st.sidebar:
             align-items: center;
             border: 1px solid #d7ecf3;
         ">
-            📍 Módulo ativo:&nbsp;<span>Geoportal</span>
+            📍 Módulo ativo:&nbsp;<span>Cronograma de Passes de Satélites</span>
         </div>
         """,
         unsafe_allow_html=True
     )
 
     st.markdown("---")
-    st.header("📁 Carregar o Excel")
-    uploaded = st.file_uploader("Upload do Excel (.xlsx)", type=["xlsx"])
+    st.header("Filtros")
+    sites = sorted(dfv["site_nome"].dropna().unique())
+    sel_sites = st.multiselect("Sites", options=sites, default=sites)
 
-    st.markdown("---")
-    with st.expander("⚙️ Opções do gráfico"):
-        freq = st.selectbox("Frequência (para agregação)", ["Diário","Semanal","Mensal","Trimestral"], index=2)
-        agg = st.selectbox("Agregação da série", ["média","mediana","máx","mín"], index=0)
-        smooth = st.selectbox("Suavização", ["Nenhuma","Média móvel","Exponencial (EMA)"], index=0)
-        window = st.slider("Janela/Span (suavização)", 3, 90, 7, step=1)
-        line_spline = st.checkbox("Linha como spline", value=True)
-        show_unc_bars = st.checkbox("Mostrar barras de incerteza", value=True)
-        show_trend = st.checkbox("Mostrar tendência linear", value=False)
+    meses = sorted(dfv["yyyymm"].dropna().unique())
+    mes_default = st.session_state.get("mes_ano") or (meses[-1] if meses else None)
+    idx = max(0, meses.index(mes_default)) if (mes_default in meses) else len(meses)-1
+    mes_ano = st.selectbox("Mês", options=meses, index=idx)
+    st.session_state["mes_ano"] = mes_ano
 
-# ================= Helpers =================
-@st.cache_data
-def read_excel_from_bytes(file_bytes) -> Dict[str, pd.DataFrame]:
-    xls = pd.ExcelFile(file_bytes, engine="openpyxl")
-    return {sn: pd.read_excel(xls, sheet_name=sn, engine="openpyxl") for sn in xls.sheet_names}
+    autor_atual = st.text_input("Seu nome (autor do commit)", value=st.session_state.get("usuario_logado","")).strip()
+    st.session_state["usuario_logado"] = autor_atual or "—"
 
-def normalize_cols(df: pd.DataFrame) -> pd.DataFrame:
-    cols = list(df.columns)
-    if cols:
-        cols[0] = "Parametro"
-    normed = []
-    for c in cols:
-        s = str(c).strip()
-        if s.lower() in ("lat","latitude"):
-            normed.append("Lat")
-        elif s.lower() in ("long","lon","longitude"):
-            normed.append("Long")
-        else:
-            normed.append(s)
-    df.columns = normed
-    return df
+# ============================================================================
+# APP BAR
+# ============================================================================
+meta_html = ""
+if "ultimo_meta" in st.session_state and st.session_state.ultimo_meta:
+    meta = st.session_state.ultimo_meta
+    meta_html = f'Último autor: {meta.get("author","—")} · Salvo (UTC): {meta.get("saved_at_utc","")} · <code>{meta.get("path","")}</code>'
 
-def _fmt_pt_month(dt: pd.Timestamp) -> str:
-    meses = [
-        "janeiro","fevereiro","março","abril","maio","junho",
-        "julho","agosto","setembro","outubro","novembro","dezembro"
-    ]
-    return f"{meses[dt.month-1].capitalize()} de {dt.year}"
+st.markdown(f"""
+<div class="appbar"><div class="appbar-inner">
+  <div><h1>Cronograma de Passes de Satélites</h1><div class="meta">{meta_html}</div></div>
+  <div class="actions"></div>
+</div></div>
+""", unsafe_allow_html=True)
 
-def extract_dates_from_first_row(df: pd.DataFrame) -> Tuple[List[str], Dict[str, str], List[pd.Timestamp]]:
-    cols = list(df.columns)
-    try:
-        data_idx = cols.index("Data")
-    except ValueError:
-        data_idx = 3 if len(cols) > 3 else 0
-    date_cols = cols[data_idx:]
-    labels, stamps = {}, []
-    for c in date_cols:
-        v = df.loc[0, c] if 0 in df.index else None
-        ts = pd.NaT
-        if pd.notna(v) and str(v).strip() != "":
-            for dayfirst in (True, False):
-                try:
-                    parsed = pd.to_datetime(v, dayfirst=dayfirst, errors="raise")
-                    ts = pd.Timestamp(year=parsed.year, month=parsed.month, day=1)
-                    break
-                except Exception:
-                    continue
-        if pd.isna(ts):
-            try:
-                parsed = pd.to_datetime(str(c), errors="raise", dayfirst=True)
-                ts = pd.Timestamp(year=parsed.year, month=parsed.month, day=1)
-            except Exception:
-                ts = pd.NaT
-        labels[c] = _fmt_pt_month(ts) if pd.notna(ts) else str(c)
-        stamps.append(ts)
-    return date_cols, labels, stamps
+# Mensagem pós-salvamento
+if st.session_state.get("__last_save_ok"):
+    st.success(st.session_state.pop("__last_save_ok"))
 
-def build_record_for_month(df: pd.DataFrame, date_col: str) -> Dict[str, Optional[str]]:
-    dfi = df.copy()
-    if dfi.columns[0] != "Parametro":
-        dfi.columns = ["Parametro"] + list(dfi.columns[1:])
-    dfi["Parametro"] = dfi["Parametro"].astype(str).str.strip()
-    dfi = dfi.set_index("Parametro", drop=True)
-    rec = {param: dfi.loc[param, date_col] for param in dfi.index}
-    rec["_lat"] = df["Lat"].dropna().iloc[0] if "Lat" in df.columns and df["Lat"].notna().any() else None
-    rec["_long"] = df["Long"].dropna().iloc[0] if "Long" in df.columns and df["Long"].notna().any() else None
-    return rec
+# ============================================================================
+# DADOS FILTRADOS
+# ============================================================================
+mask = dfv["site_nome"].isin(sel_sites) & (dfv["yyyymm"] == mes_ano)
+fdf = dfv.loc[mask].copy().sort_values(["data","site_nome"])
+label_mes = mes_label_pt(mes_ano)
 
-def resolve_image_target(path_str: str) -> Optional[str]:
-    if path_str is None or (isinstance(path_str, float) and pd.isna(path_str)): return None
-    s = str(path_str).strip()
-    if not s: return None
-    s = s.replace("\\","/"); s = s[2:] if s.startswith("./") else s
-    if s.lower().startswith(("http://","https://")): return s
-    return f"{DEFAULT_BASE_URL.rstrip('/')}/{s.lstrip('/')}"
+# ============================================================================
+# CARD: TABELA
+# ============================================================================
+st.markdown(f'<div class="card"><h3>📋 Tabela de passagens — {label_mes}</h3>', unsafe_allow_html=True)
 
-def extract_series(dfi: pd.DataFrame, date_cols_sorted, dates_ts_sorted, row_name="Taxa Metano"):
-    idx_map = {i.lower(): i for i in dfi.index}
-    key = idx_map.get(row_name.lower())
-    rows = []
-    if key is not None:
-        for i, col in enumerate(date_cols_sorted):
-            val = dfi.loc[key, col] if col in dfi.columns else None
-            try:
-                num = float(pd.to_numeric(val))
-            except Exception:
-                num = None
-            ts = dates_ts_sorted[i]
-            if pd.notna(num) and pd.notna(ts):
-                rows.append({"date": ts, "value": float(num)})
-    s = pd.DataFrame(rows)
-    if not s.empty:
-        s = s.sort_values("date").reset_index(drop=True)
-    return s
+view = fdf[["site_nome","data","status","observacao","validador","data_validacao"]].copy()
+view["data"] = pd.to_datetime(view["data"]).dt.strftime("%Y-%m-%d")
+view["observacao"] = view["observacao"].astype("string")
+view["validador"] = view["validador"].astype("string")
+view["data_validacao"] = view["data_validacao"].apply(
+    lambda x: "" if pd.isna(x) else pd.to_datetime(x).strftime("%Y-%m-%d %H:%M:%S")
+).astype("string")
 
-def resample_and_smooth(s: pd.DataFrame, freq_code: str, agg: str, smooth: str, window: int):
-    if s.empty: return s
-    s2 = s.set_index("date").asfreq("D")
-    agg_fn = {"média":"mean","mediana":"median","máx":"max","mín":"min"}[agg]
-    out = getattr(s2.resample(freq_code), agg_fn)().dropna().reset_index()
-    if smooth == "Média móvel":
-        out["value"] = out["value"].rolling(window=window, min_periods=1).mean()
-    elif smooth == "Exponencial (EMA)":
-        out["value"] = out["value"].ewm(span=window, adjust=False).mean()
-    return out
+colcfg = {
+    "site_nome": st.column_config.TextColumn("Site", disabled=True, width="medium"),
+    "data": st.column_config.TextColumn("Data", disabled=True, width="small"),
+    "status": st.column_config.SelectboxColumn(
+        "Status", options=["Pendente","Aprovada","Rejeitada"], required=True, width="small"
+    ),
+    "observacao": st.column_config.TextColumn("Observação", width="medium"),
+    "validador": st.column_config.TextColumn("Validador", width="small"),
+    "data_validacao": st.column_config.TextColumn("Data validação", disabled=True, width="medium"),
+}
 
-def get_from_dfi(dfi: pd.DataFrame, selected_col: str, name: str, *aliases):
-    """Busca valor por nome do parâmetro (case/acento-insensitive)."""
-    import unicodedata, re
-    def _norm_txt(s)->str:
-        if s is None or (isinstance(s,float) and pd.isna(s)): return ""
-        s=unicodedata.normalize("NFKD",str(s))
-        s="".join(ch for ch in s if not unicodedata.category(ch).startswith("M"))
-        return re.sub(r"\s+"," ",s).strip().lower()
-    idx_norm={_norm_txt(ix): ix for ix in dfi.index}
-    keys=[_norm_txt(name)] + [_norm_txt(a) for a in aliases]
-    for k in keys:
-        if k and k in idx_norm:
-            return dfi.loc[idx_norm[k], selected_col]
-    for nk,orig in idx_norm.items():
-        if any(nk.startswith(k) for k in keys if k):
-            return dfi.loc[orig, selected_col]
-    return None
+editor_key = _editor_key(sel_sites, mes_ano)
+edited = st.data_editor(
+    view,
+    num_rows="fixed",
+    width='stretch',
+    column_config=colcfg,
+    disabled=["site_nome","data","data_validacao"],
+    key=editor_key,
+)
 
-# =============== Fluxo principal ===============
-if uploaded is None:
-    st.info("Faça o upload do seu Excel (`.xlsx`) no painel lateral.")
-    st.stop()
+st.markdown("</div>", unsafe_allow_html=True)
 
-try:
-    book = read_excel_from_bytes(uploaded)
-except Exception as e:
-    st.error(f"Falha ao ler o Excel enviado. Detalhe: {e}")
-    st.stop()
+# ============================================================================
+# DETECTA ALTERAÇÕES
+# ============================================================================
+def _unsaved_mask(orig: pd.DataFrame, ed: pd.DataFrame) -> pd.Series:
+    a = orig[["site_nome","data","status","observacao","validador"]].copy()
+    b = ed[["site_nome","data","status","observacao","validador"]].copy()
+    return (a.values != b.values).any(axis=1)
 
-# Normaliza cada aba (site)
-book = {name: normalize_cols(df.copy()) for name, df in book.items()}
-site_names = sorted(book.keys())
+changed_mask = _unsaved_mask(view, edited)
+unsaved = int(changed_mask.sum())
+if unsaved > 0:
+    st.markdown(f'<div class="unsaved"><strong>{unsaved}</strong> alteração(ões) não salvas.</div>', unsafe_allow_html=True)
 
-# Escolha do site e data
-site = st.selectbox("Selecione o Site", site_names)
-df_site = book[site]
-
-# Garante índice numérico para a linha 0 usada pelos rótulos de Data
-if df_site.index.name is not None:
-    df_site = df_site.reset_index(drop=True)
-
-date_cols, labels, stamps = extract_dates_from_first_row(df_site)
-order = sorted(range(len(date_cols)), key=lambda i: (pd.Timestamp.min if pd.isna(stamps[i]) else stamps[i]))
-date_cols_sorted = [date_cols[i] for i in order]
-labels_sorted = [labels[date_cols[i]] for i in order]
-stamps_sorted = [stamps[i] for i in order]
-
-selected_label = st.selectbox("Selecione a data", labels_sorted)
-selected_col = date_cols_sorted[labels_sorted.index(selected_label)]
-
-# Layout superior: imagem/mapa + tabela/métricas
-left, right = st.columns([2,1])
-
-with left:
-    rec = build_record_for_month(df_site, selected_col)
-    img = resolve_image_target(rec.get("Imagem"))
-    st.subheader(f"Imagem — {site} — {selected_label}")
-    if img:
-        st.image(img, use_container_width=True)
-    else:
-        st.error("Imagem não encontrada para essa data.")
-
-    if HAVE_MAP and (rec.get("_lat") is not None and rec.get("_long") is not None):
-        with st.expander("🗺️ Mostrar mapa (opcional)", expanded=False):
-            try:
-                base_choice = st.selectbox(
-                    "Camada base do mapa",
-                    ["Satélite (Esri)", "OpenStreetMap"],
-                    index=0,
-                    help="Escolha a base: imagem de satélite real (Esri) ou mapa OSM."
-                )
-                # Mapa sem base inicial
-                m = folium.Map(
-                    location=[float(rec["_lat"]), float(rec["_long"])],
-                    zoom_start=13,
-                    tiles=None
-                )
-                # Camadas base
-                folium.TileLayer(
-                    tiles=ESRI_SAT_URL,
-                    attr=ESRI_ATTR,
-                    name="Satélite (Esri World Imagery)",
-                    overlay=False,
-                    control=True,
-                    show=(base_choice.startswith("Satélite"))
-                ).add_to(m)
-                folium.TileLayer(
-                    "OpenStreetMap",
-                    name="OpenStreetMap",
-                    overlay=False,
-                    control=True,
-                    show=(base_choice.startswith("OpenStreetMap"))
-                ).add_to(m)
-
-                # Ponto
-                folium.CircleMarker(
-                    [float(rec["_lat"]), float(rec["_long"])],
-                    radius=8,
-                    color="#FFFFFF",
-                    weight=2,
-                    fill=True,
-                    fill_color="#E74C3C",
-                    fill_opacity=0.9,
-                    tooltip=site
-                ).add_to(m)
-
-                folium.LayerControl(collapsed=False).add_to(m)
-                st_folium(m, height=420, use_container_width=True)
-            except Exception as e:
-                st.caption(f"[Mapa indisponível: {e}]")
-
-with right:
-    st.subheader("Detalhes do Registro")
-    dfi = df_site.copy()
-    if dfi.columns[0] != "Parametro":
-        dfi.columns = ["Parametro"] + list(dfi.columns[1:])
-    dfi["Parametro"] = dfi["Parametro"].astype(str).str.strip()
-    dfi = dfi.set_index("Parametro", drop=True)
-
-    k1, k2, k3 = st.columns(3)
-    v_taxa  = get_from_dfi(dfi, selected_col, "Taxa Metano")
-    v_inc   = get_from_dfi(dfi, selected_col, "Incerteza")
-    v_vento = get_from_dfi(dfi, selected_col, "Velocidade do Vento")
-
-    k1.metric("Taxa Metano", f"{v_taxa}" if pd.notna(v_taxa) else "—")
-    k2.metric("Incerteza", f"{v_inc}" if pd.notna(v_inc) else "—")
-    k3.metric("Vento", f"{v_vento}" if pd.notna(v_vento) else "—")
-
-    st.markdown("---")
-    st.caption("Tabela completa (parâmetro → valor):")
-
-    # Tabela enxuta
-    table_df = dfi[[selected_col]].copy()
-    table_df.columns = ["Valor"]
-    # remove Parametro/Imagem se existirem
-    drop_keys = {"parametro", "imagem"}
-    to_drop = [ix for ix in table_df.index if str(ix).strip().lower() in drop_keys]
-    table_df = table_df.drop(index=to_drop, errors="ignore")
-
-    # Ajuste para "Data de Aquisição"
-    import unicodedata
-    def _norm(s: str) -> str:
-        s = "".join(ch for ch in unicodedata.normalize("NFKD", str(s)) if not unicodedata.category(ch).startswith("M"))
-        return s.strip().lower()
-    for ix in table_df.index:
-        v = table_df.at[ix, "Valor"]
-        if pd.isna(v):
-            table_df.at[ix, "Valor"] = ""
-            continue
-        if _norm(ix) == "data de aquisicao":
-            try:
-                dtp = pd.to_datetime(v, dayfirst=True, errors="raise")
-                table_df.at[ix, "Valor"] = dtp.strftime("%Y-%m-%d")
-            except Exception:
-                table_df.at[ix, "Valor"] = str(v).replace(" 00:00:00", "")
-        else:
-            table_df.at[ix, "Valor"] = str(v)
-
-    st.dataframe(table_df, use_container_width=True)
-
-# ======== Gráfico único: linha (spline) + barras de incerteza ========
-st.markdown("### Série temporal — Taxa de Metano com Incerteza")
-
-series_raw_val = extract_series(dfi, date_cols_sorted, stamps_sorted, row_name="Taxa Metano")
-series_raw_unc = extract_series(dfi, date_cols_sorted, stamps_sorted, row_name="Incerteza")
-
-freq_code = {"Diário": "D", "Semanal": "W", "Mensal": "M", "Trimestral": "Q"}[freq]
-series_val = resample_and_smooth(series_raw_val, freq_code, agg, smooth, window)
-series_unc = resample_and_smooth(series_raw_unc, freq_code, agg, smooth, window)
-
-df_plot = pd.merge(
-    series_val.rename(columns={"value": "metano"}),
-    series_unc.rename(columns={"value": "incerteza"}),
-    on="date", how="left"
-).sort_values("date")
-
-if df_plot.empty:
-    st.info("Sem dados numéricos suficientes para plotar.")
-    fig_line = None
-else:
-    err_array = df_plot["incerteza"].fillna(0)
-    # guarda contexto p/ fallback de export PNG
-    st.session_state["_plot_ctx"] = {
-        "x": df_plot["date"].tolist(),
-        "y": df_plot["metano"].tolist(),
-        "yerr": err_array.tolist(),
-        "show_unc_bars": bool(show_unc_bars),
-        "show_trend": bool(show_trend),
-    }
-    line_kwargs = {"shape": "spline"} if line_spline else {}
-
-    fig_line = go.Figure()
-    fig_line.add_trace(
-        go.Scatter(
-            x=df_plot["date"],
-            y=df_plot["metano"],
-            mode="lines+markers",
-            name="Taxa de Metano",
-            line=dict(**line_kwargs),
-            error_y=dict(type="data", array=err_array, visible=bool(show_unc_bars), thickness=1.2, width=3),
-        )
-    )
-
-    if show_trend and len(df_plot) >= 2:
-        x = (df_plot["date"] - df_plot["date"].min()).dt.days.values.astype(float)
-        y = df_plot["metano"].values.astype(float)
-        coeffs = np.polyfit(x, y, 1)
-        line = np.poly1d(coeffs)
-        fig_line.add_trace(
-            go.Scatter(x=df_plot["date"], y=line(x), mode="lines", name="Tendência", line=dict(dash="dash"))
-        )
-
-    fig_line.update_layout(
-        template="plotly_white", xaxis_title="Data", yaxis_title="Taxa de Metano",
-        margin=dict(l=10, r=10, t=30, b=10), height=420,
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-    )
-    st.plotly_chart(fig_line, use_container_width=True)
-
-# ===================== PDF helpers =====================
-
-def _image_reader_from_url(url: str):
-    try:
-        with urlopen(url, timeout=10) as resp:
-            img = ImageReader(resp); w, h = img.getSize()
-            return img, w, h
-    except Exception:
-        return None, 0, 0
-
-def _draw_logo_scaled(c, x_right, y_top, logo_img, lw, lh, max_w=90, max_h=42):
-    if not logo_img: return 0, 0
-    scale = min(max_w / lw, max_h / lh)
-    w, h = lw * scale, lh * scale
-    c.drawImage(logo_img, x_right - w, y_top - h, width=w, height=h, mask='auto')
-    return w, h
-
-def _export_fig_to_png_bytes(fig) -> Optional[bytes]:
-    # 1) Plotly + kaleido
-    try:
-        import plotly.io as pio
-        return pio.to_image(fig, format="png", width=1400, height=800, scale=2, engine="kaleido")
-    except Exception:
-        pass
-    # 2) Kaleido scope
-    try:
-        from kaleido.scopes.plotly import PlotlyScope
-        scope = PlotlyScope(plotlyjs=None, mathjax=False)
-        return scope.transform(fig.to_plotly_json(), format="png", width=1400, height=800, scale=2)
-    except Exception:
-        pass
-    # 3) Matplotlib fallback
-    try:
-        ctx = st.session_state.get("_plot_ctx")
-        if not ctx: return None
-        x = pd.to_datetime(pd.Series(ctx.get("x", [])))
-        y = pd.to_numeric(pd.Series(ctx.get("y", [])), errors="coerce")
-        yerr = pd.to_numeric(pd.Series(ctx.get("yerr", [])), errors="coerce").fillna(0)
-        show_unc = bool(ctx.get("show_unc_bars", True))
-        show_tr = bool(ctx.get("show_trend", False))
-        if x.empty or y.empty: return None
-        fig_m, ax = plt.subplots(figsize=(14, 8), dpi=100)
-        ax.plot(x, y, marker="o", linewidth=2)
-        if show_unc:
-            ax.errorbar(x, y, yerr=yerr, fmt='none', linewidth=1)
-        if show_tr and len(x) >= 2:
-            xd = (x - x.min()).dt.days.astype(float).to_numpy()
-            coeffs = np.polyfit(xd, y.to_numpy(dtype=float), 1)
-            yhat = np.poly1d(coeffs)(xd)
-            ax.plot(x, yhat, linestyle='--')
-        ax.set_xlabel("Data"); ax.set_ylabel("Taxa de Metano")
-        fig_m.autofmt_xdate()
-        buf = io.BytesIO()
-        fig_m.savefig(buf, format="png", bbox_inches="tight")
-        plt.close(fig_m)
-        buf.seek(0)
-        return buf.getvalue()
-    except Exception:
-        return None
-
-def build_report_pdf(
-    site,
-    date,
-    taxa,
-    inc,
-    vento,
-    img_url,
-    fig1,
-    logo_rel_path: str = LOGO_REL_PATH,
-    satellite: Optional[str] = None,
-) -> bytes:
-    BAND   = (0x15/255, 0x5E/255, 0x75/255)
-    ACCENT = (0xF5/255, 0x9E/255, 0x0B/255)
-
+# ============================================================================
+# SALVAR (1 botão) + auto-refresh
+# ============================================================================
+def _exportar_excel_bytes(df: pd.DataFrame) -> bytes:
+    cols = ["site_nome","data","status","observacao","validador","data_validacao"]
+    out = df[cols].copy()
+    out["data"] = pd.to_datetime(out["data"], errors="coerce").dt.strftime("%Y-%m-%d").fillna("")
+    dv = pd.to_datetime(out["data_validacao"], errors="coerce")
+    out["data_validacao"] = dv.dt.strftime("%Y-%m-%d %H:%M:%S").fillna("")
     buf = io.BytesIO()
-    c   = canvas.Canvas(buf, pagesize=A4)
-    W, H = A4
-    margin = 40
-    band_h = 80
+    with pd.ExcelWriter(buf, engine="openpyxl") as writer:
+        out.to_excel(writer, index=False, sheet_name="validacao")
+    buf.seek(0); return buf.read()
 
-    logo_url = f"{DEFAULT_BASE_URL.rstrip('/')}/{logo_rel_path.lstrip('/')}"
-    logo_img, logo_w, logo_h = _image_reader_from_url(logo_url)
+def _aplicar_salvamento(edited_df: pd.DataFrame):
+    base = st.session_state.df_validado.copy()
+    e = edited_df.copy()
+    e["data"] = pd.to_datetime(e["data"]).dt.date
 
-    page_no = 0
-    def start_page():
-        nonlocal page_no
-        page_no += 1
-        c.setFillColorRGB(*BAND)
-        c.rect(0, H - band_h, W, band_h, fill=1, stroke=0)
-        _draw_logo_scaled(c, x_right=W - margin, y_top=H - (band_h/2 - 14),
-                          logo_img=logo_img, lw=logo_w, lh=logo_h, max_w=90, max_h=42)
-        ts_utc = datetime.now(timezone.utc).strftime('%d/%m/%Y %H:%M UTC')
-        c.setFillColorRGB(1,1,1); c.setFont("Helvetica-Bold", 16)
-        c.drawString(margin, H - band_h + 28, "Relatório Geoportal de Metano")
-        c.setFont("Helvetica", 10)
-        c.drawString(margin, H - band_h + 12, f"Site: {site}   |   Data: {date}   |   Gerado em: {ts_utc}")
-        c.setFillColorRGB(0,0,0)
-        c.setStrokeColorRGB(*ACCENT); c.setLineWidth(1)
-        c.line(margin, H - band_h - 6, W - margin, H - band_h - 6)
-        c.setStrokeColorRGB(0,0,0)
-        return H - band_h - 20
+    keys = ["site_nome","data"]
+    upd_cols = ["status","observacao","validador"]
 
-    y = start_page()
+    merged = base.merge(e[keys + upd_cols], on=keys, how="left", suffixes=("", "_novo"))
+    for c in upd_cols:
+        c_new = f"{c}_novo}"
+        c_new = f"{c}_novo"
+        if c_new in merged.columns:
+            mask_upd = ~merged[c_new].isna()
+            merged.loc[mask_upd, c] = merged.loc[mask_upd, c_new]
+            merged.drop(columns=[c_new], inplace=True, errors="ignore")
 
-    def _s(v): 
-        return "—" if v is None or (isinstance(v,float) and pd.isna(v)) else str(v)
+    mudou = merged["status"].isin(["Aprovada","Rejeitada"]) & merged["data_validacao"].isna()
+    ts_now = dt.datetime.now(dt.timezone.utc).replace(tzinfo=None)
+    merged.loc[mudou, "data_validacao"] = ts_now
 
-    # Métricas
-    c.setFont("Helvetica-Bold", 12); c.drawString(margin, y, "Métricas"); y -= 16
-    c.setFont("Helvetica", 11)
-    for line in (
-        f"• Taxa Metano: {_s(taxa)}",
-        f"• Incerteza: {_s(inc)}",
-        f"• Velocidade do Vento: {_s(vento)}",
-        f"• Satélite: {_s(satellite)}",
-    ):
-        c.drawString(margin, y, line); y -= 14
+    st.session_state.df_validado = merged
+    try:
+        xlsb = _exportar_excel_bytes(merged)
+        meta = gh_save_snapshot(xlsb, author=st.session_state.get("usuario_logado",""))
+        st.session_state.ultimo_meta = meta
+        st.session_state["__last_save_ok"] = f"Publicado no GitHub: `{meta['path']}` (UTC: {meta['saved_at_utc']})"
+    except Exception as e:
+        st.session_state["__last_save_ok"] = f"Salvou localmente, mas falhou ao publicar no GitHub: {e}"
+    _rerun()
 
-    y -= 10; c.setStrokeColorRGB(*ACCENT); c.setLineWidth(0.7)
-    c.line(margin, y, W - margin, y); y -= 14; c.setStrokeColorRGB(0,0,0)
+save_clicked = st.button("💾 Salvar alterações", type="primary", disabled=(unsaved == 0))
+if save_clicked:
+    _aplicar_salvamento(edited)
 
-    # Figura 1 — Imagem principal
-    if img_url:
-        main_img, iw, ih = _image_reader_from_url(img_url)
-        if main_img:
-            max_w, max_h = W - 2*margin, 190
-            s = min(max_w/iw, max_h/ih); w, h = iw*s, ih*s
-            if y - h < margin + 30:
-                c.showPage(); y = start_page()
-            c.drawImage(main_img, margin, y - h, width=w, height=h, mask='auto')
-            c.setFont("Helvetica-Oblique", 9)
-            c.drawString(margin, y - h - 12, "Figura 1 - Concentração de Metano em ppb")
-            y -= h + 26
+# ============================================================================
+# CARD: AÇÕES EM LOTE + CALENDÁRIO
+# ============================================================================
+st.markdown(f'<div class="card"><h3>⚙️ Ações em lote por dia — {label_mes}</h3>', unsafe_allow_html=True)
 
-    # Figura 2 — Gráfico
-    if fig1 is not None:
+dias_disponiveis = sorted(pd.to_datetime(fdf["data"]).dt.date.unique())
+if dias_disponiveis:
+    d_sel = st.selectbox("Dia", options=dias_disponiveis, format_func=lambda d: d.strftime("%Y-%m-%d"))
+    cA, cB, _ = st.columns([1,1,6])
+
+    def _lote(status_final: str, msg_ok: str):
+        base = st.session_state.df_validado
+        idx = (pd.to_datetime(base["data"]).dt.date == d_sel) & base["site_nome"].isin(sel_sites) & (base["yyyymm"] == mes_ano)
+        base.loc[idx, "status"] = status_final
+        ts_now = dt.datetime.now(dt.timezone.utc).replace(tzinfo=None)
+        base.loc[idx & base["data_validacao"].isna(), "data_validacao"] = ts_now
+        st.session_state.df_validado = base
         try:
-            png1 = _export_fig_to_png_bytes(fig1)
-            if png1 is None:
-                raise RuntimeError("Exportação PNG indisponível no ambiente")
-            img1 = ImageReader(io.BytesIO(png1))
-            iw, ih = img1.getSize()
-            max_w, max_h = W - 2*margin, 260
-            s = min(max_w/iw, max_h/ih); w, h = iw*s, ih*s
-            if y - h < margin + 30:
-                c.showPage(); y = start_page()
-            c.drawImage(img1, margin, y - h, width=w, height=h, mask='auto')
-            c.setFont("Helvetica-Oblique", 9)
-            c.drawString(margin, y - h - 12, "Figura 2 - Série Histórica de Concentração de Metano")
-            y -= h + 26
+            xlsb = _exportar_excel_bytes(base)
+            meta = gh_save_snapshot(xlsb, author=st.session_state.get("usuario_logado",""))
+            st.session_state.ultimo_meta = meta
+            st.session_state["__last_save_ok"] = f"{msg_ok} em {d_sel}. Publicado: `{meta['path']}`"
         except Exception as e:
-            c.setFont("Helvetica", 9)
-            c.drawString(margin, y, f"[Falha ao exportar gráfico: {e}]"); y -= 14
+            st.session_state["__last_save_ok"] = f"{msg_ok} em {d_sel}. Falhou ao publicar no GitHub: {e}"
+        _rerun()
 
-    # Rodapé
-    c.setFont("Helvetica", 8); c.setFillColorRGB(0.42,0.45,0.50)
-    c.drawRightString(W - margin, 12, f"pág {page_no}")
-    c.setFillColorRGB(0,0,0)
+    with cA:
+        if st.button("✅ Aprovar tudo do dia"):
+            _lote("Aprovada", "Aprovado tudo")
+    with cB:
+        if st.button("⛔ Rejeitar tudo do dia"):
+            _lote("Rejeitada", "Rejeitado tudo")
+else:
+    st.caption("Sem passagens no mês/site(s) filtrados.")
 
-    c.showPage(); c.save(); buf.seek(0)
-    return buf.read()
+# ---- Calendário -------------------------------------------------------------
+def montar_calendario(df_mes: pd.DataFrame, mes_ano: str,
+                      only_color_with_events: bool = True,
+                      show_badges: bool = True) -> go.Figure:
+    primeiro = pd.to_datetime(f"{mes_ano}-01")
+    ultimo = (primeiro + pd.offsets.MonthEnd(1))
+    dias = pd.date_range(primeiro, ultimo, freq="D")
 
-# ===================== Exportar PDF (UI) =====================
-with right:
-    taxa      = get_from_dfi(dfi, selected_col, "Taxa Metano")
-    inc       = get_from_dfi(dfi, selected_col, "Incerteza")
-    vento     = get_from_dfi(dfi, selected_col, "Velocidade do Vento")
-    satellite = get_from_dfi(dfi, selected_col, "Satelite", "Satélite", "Satellite", "Sat")
+    if df_mes.empty:
+        agg = pd.DataFrame(columns=["data","aprovadas","rejeitadas","pendentes","sites"])
+    else:
+        agg = (df_mes.assign(data=pd.to_datetime(df_mes["data"]).dt.date)
+                     .groupby("data")
+                     .agg(aprovadas=("status", lambda s: (s == "Aprovada").sum()),
+                          rejeitadas=("status", lambda s: (s == "Rejeitada").sum()),
+                          pendentes=("status", lambda s: (s == "Pendente").sum()),
+                          sites=("site_nome", lambda s: sorted(set(s))))
+                     .reset_index())
+    info_map = {row["data"]: row for _, row in agg.iterrows()}
 
-img_url = resolve_image_target(rec.get("Imagem"))
+    def cor_do_dia(d: pd.Timestamp) -> str:
+        inf = info_map.get(d.date())
+        if inf is None:
+            return "#ECEFF1" if only_color_with_events else "#B0BEC5"
+        if inf["rejeitadas"] > 0: return "#c62828"
+        if inf["pendentes"] > 0 and inf["aprovadas"] == 0: return "#B0BEC5"
+        return "#2e7d32"
 
-st.markdown("---")
-st.subheader("📄 Exportar PDF")
-st.caption("Relatório com faixa superior, logo, métricas, imagem e o gráfico atual (linha + barras de incerteza). Timestamp em UTC.")
+    def weekday_dom(d: pd.Timestamp) -> int:
+        return (d.weekday() + 1) % 7  # domingo = 0
 
-if st.button("Gerar PDF (dados + gráfico)", type="primary", use_container_width=True):
-    pdf_bytes = build_report_pdf(
-        site=site, date=selected_label, taxa=taxa, inc=inc, vento=vento,
-        img_url=img_url, fig1=fig_line,
-        logo_rel_path=LOGO_REL_PATH, satellite=satellite
-    )
-    st.download_button(
-        label="⬇️ Baixar PDF",
-        data=pdf_bytes,
-        file_name=f"relatorio_geoportal_{site}_{selected_label}.pdf".replace(" ", "_"),
-        mime="application/pdf",
-        use_container_width=True
-    )
+    grid = np.full((6, 7), None, dtype=object)
+    week = 0
+    for d in dias:
+        col = weekday_dom(d)
+        if col == 0 and d.day != 1:
+            week += 1
+        grid[week, col] = d
+
+    fig = go.Figure()
+    for r in range(6):
+        for c in range(7):
+            d = grid[r, c]
+            if d is None: 
+                continue
+            fill = cor_do_dia(d)
+            fig.add_shape(type="rect", x0=c, x1=c+1, y0=5-r, y1=6-r,
+                          line=dict(width=1, color="#90A4AE"), fillcolor=fill)
+            fig.add_annotation(x=c+0.05, y=5-r+0.85, text=str(d.day),
+                               showarrow=False, xanchor="left", yanchor="top", font=dict(size=12))
+            inf = info_map.get(d.date())
+            if show_badges and (inf is not None):
+                y0 = 5-r+0.18; badges = []
+                if inf["aprovadas"] > 0: badges.append(("●", "#2e7d32"))
+                if inf["rejeitadas"] > 0: badges.append(("●", "#c62828"))
+                if inf["pendentes"] > 0: badges.append(("●", "#607D8B"))
+                x0 = c+0.08
+                for ch, colr in badges:
+                    fig.add_annotation(x=x0, y=y0, text=f"<span style='color:{colr}'>{ch}</span>",
+                                       showarrow=False, xanchor="left", yanchor="bottom", font=dict(size=12))
+                    x0 += 0.12
+                txt_cnt = f"{inf['aprovadas']}A/{inf['rejeitadas']}R/{inf['pendentes']}P"
+                fig.add_annotation(x=c+0.95, y=5-r+0.18, text=txt_cnt,
+                                   showarrow=False, xanchor="right", yanchor="bottom", font=dict(size=10))
+            if inf is not None:
+                sites_txt = ", ".join(inf["sites"]) if inf["sites"] else "-"
+                hover = (f"{d.strftime('%Y-%m-%d')}<br>"
+                         f"Aprovadas: {inf['aprovadas']} | Rejeitadas: {inf['rejeitadas']} | Pendentes: {inf['pendentes']}<br>"
+                         f"Sites: {sites_txt}")
+                fig.add_trace(go.Scatter(x=[c+0.5], y=[5-r+0.5], mode="markers",
+                                         marker=dict(size=1, color="rgba(0,0,0,0)"),
+                                         hovertemplate=hover, showlegend=False))
+    fig.update_xaxes(visible=False); fig.update_yaxes(visible=False)
+    fig.update_layout(height=460, margin=dict(l=10, r=10, t=10),
+                      paper_bgcolor="white", plot_bgcolor="white")
+    return fig
+
+st.subheader(f"Calendário do mês selecionado — {label_mes}")
+fig = montar_calendario(fdf, mes_ano, only_color_with_events=True, show_badges=True)
+st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+
+st.markdown("</div>", unsafe_allow_html=True)  # fecha card
+
+# ============================================================================
+# CARD: EXPORTAR / DIAGNÓSTICO
+# ============================================================================
+st.markdown('<div class="card"><h3>⬇️ Exportar arquivo validado</h3>', unsafe_allow_html=True)
+colA, colB = st.columns([1,2])
+with colA:
+    nome_arquivo = st.text_input("Nome do arquivo", value="passagens_validado.xlsx")
+with colB:
+    xlsb = _exportar_excel_bytes(st.session_state.df_validado)
+    st.download_button("Baixar Excel validado", data=xlsb, file_name=nome_arquivo,
+                       mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+st.markdown("</div>", unsafe_allow_html=True)
+
+with st.expander("🔧 Diagnóstico GitHub", expanded=False):
+    snap = {
+        "GITHUB_TOKEN|github_token": bool(_gh_token()),
+        "REPO_CRONOGRAMA|github_repo": bool(_gh_repo()),
+        "GITHUB_BRANCH|github_branch": bool(_gh_branch()),
+        "GH_DATA_ROOT|gh_data_root|data_root": bool(_gh_root()),
+    }
+    st.write("Config detectada:", snap)
+    st.write("Repo:", _gh_repo())
+    st.write("Branch:", _gh_branch())
+    st.write("Raiz:", _gh_root())
+    if st.button("🔄 Recarregar último snapshot do GitHub"):
+        st.session_state.df_validado = load_latest_snapshot_df()
+        st.session_state.ultimo_meta = load_latest_meta()
+        _rerun()
