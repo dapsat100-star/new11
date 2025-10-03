@@ -8,8 +8,8 @@
     "marcio": {
       "name": "Marcio Perassoli",
       "email": "marcio.perassoli@dapsat.com",
-      "password": "$2b$12$sORZ0ibXbRos6uqejjO.de5EN4AL.NJE11fU4Pe.9rV7gKT01mkBi",
-      "must_change": true
+      "password": "$2b$12$OqGQep9J8tFNN52merXXXeYSg0LTPr387SkLAOQIpvimlmqqn0o6O",
+      "must_change": false
     }
   }
 }
