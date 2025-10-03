@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # pages/4_Agendamento_de_Imagens.py
-# Cronograma de Passes de Satélites — UI SaaS, sidebar fixa, GitHub status badge,
-# salvamento sem expor paths e sem diagnóstico visível.
+# Cronograma de Passes de Satélites — UI SaaS, sidebar fixa, status badge,
+# "Última atualização" com prioridade local e STATUS com cores (via ícones).
 
 from __future__ import annotations
 
@@ -65,7 +65,7 @@ div[data-testid="stSidebarNav"] { display: none !important; }
 section[data-testid="stSidebar"] nav,
 section[data-testid="stSidebar"] [role="navigation"] { display: none !important; }
 
-/* Não truncar links */
+/* Não truncar links do page_link */
 section[data-testid="stSidebar"] a[role="link"],
 section[data-testid="stSidebar"] [data-testid="stPageLink"] {
   white-space: normal !important;
@@ -95,10 +95,6 @@ section[data-testid="stSidebar"] [data-testid="stPageLink"] {
 
 /* Tabela: cabeçalho sticky */
 [data-testid="stTable"] thead tr {position: sticky; top: 48px; background:#fff; z-index:5; box-shadow:0 1px 0 #eef0f3;}
-
-/* Barra de aviso */
-.unsaved {background:#fff; border:1px solid #e5e7eb; border-radius:14px; padding:10px 14px;
-  box-shadow:0 8px 24px rgba(16,24,40,.12); display:flex; gap:10px; align-items:center;}
 
 header[data-testid="stHeader"]{ display:none !important; }
 
@@ -230,7 +226,6 @@ def gh_save_snapshot(xls_bytes: bytes, author: Optional[str] = None) -> dict:
     excel_rel_path = f"{root}/{yyyy}/{mm}/validado-{stamp}.xlsx"
     gh_put_file(excel_rel_path, xls_bytes, f"[streamlit] snapshot {stamp} (autor={author or 'anon'})", None)
     latest = {"saved_at_utc": now.isoformat().replace("+00:00","Z")}
-    # atualiza latest.json sem expor detalhes na UI
     latest_path = f"{root}/latest.json"
     sha_old = gh_get_file_sha(latest_path)
     gh_put_file(latest_path, json.dumps(latest, ensure_ascii=False, indent=2).encode("utf-8"),
@@ -287,6 +282,10 @@ if "df_validado" not in st.session_state:
         st.session_state.df_validado = load_latest_snapshot_df()
         st.session_state.ultimo_meta = load_latest_meta()
 
+# Inicializa o carimbo local a partir do latest.json (se ainda não houver)
+if "ultimo_meta" in st.session_state and st.session_state.ultimo_meta and "__last_saved_ts" not in st.session_state:
+    st.session_state["__last_saved_ts"] = st.session_state.ultimo_meta.get("saved_at_utc")
+
 if st.session_state.df_validado is None or st.session_state.df_validado.empty:
     st.info("Nenhum snapshot encontrado no GitHub. Salve ao menos um arquivo em data/validado/.")
     st.stop()
@@ -337,7 +336,7 @@ with st.sidebar:
     st.session_state["usuario_logado"] = autor_atual or "—"
 
 # ============================================================================
-# APP BAR (com status do GitHub)
+# APP BAR (status + última atualização, priorizando salvamento local)
 # ============================================================================
 gh_ok = _ping_github()
 badge = (
@@ -345,9 +344,21 @@ badge = (
     if gh_ok else
     '<span class="status-badge status-err">🔴 Sem conexão</span>'
 )
-ult_meta = st.session_state.get("ultimo_meta") or {}
-ult_ts = ult_meta.get("saved_at_utc", "").replace("T", " ").replace("Z"," UTC")
-meta_html = f'Última atualização em: {ult_ts}' if ult_ts else 'Última atualização em: —'
+
+last_local = st.session_state.get("__last_saved_ts")  # ISO '...Z'
+last_git   = (st.session_state.get("ultimo_meta") or {}).get("saved_at_utc")
+
+def _fmt(ts: str) -> str:
+    return ts.replace("T", " ").replace("Z", " UTC")
+
+if last_local:
+    stamp = _fmt(last_local)
+elif last_git:
+    stamp = _fmt(last_git)
+else:
+    stamp = "—"
+
+meta_html = f"Última atualização em: {stamp}"
 
 st.markdown(
     f"""
@@ -371,10 +382,20 @@ fdf = dfv.loc[mask].copy().sort_values(["data","site_nome"])
 label_mes = mes_label_pt(mes_ano)
 
 # ============================================================================
-# CARD: TABELA
+# CARD: TABELA (STATUS com cores via rótulos)
 # ============================================================================
 st.markdown(f'<div class="card"><h3>📋 Tabela de passagens — {label_mes}</h3>', unsafe_allow_html=True)
 
+# Mapeamentos visual <-> valor real
+STATUS_TO_VIS = {
+    "Pendente": "⚫ Pendente",
+    "Aprovada": "🟢 Aprovada",
+    "Rejeitada": "🔴 Rejeitada",
+}
+VIS_TO_STATUS = {v: k for k, v in STATUS_TO_VIS.items()}
+VIS_OPTIONS = ["⚫ Pendente", "🟢 Aprovada", "🔴 Rejeitada"]
+
+# View exibida/edição
 view = fdf[["site_nome","data","status","observacao","validador","data_validacao"]].copy()
 view["data"] = pd.to_datetime(view["data"]).dt.strftime("%Y-%m-%d")
 view["observacao"] = view["observacao"].astype("string")
@@ -383,10 +404,16 @@ view["data_validacao"] = view["data_validacao"].apply(
     lambda x: "" if pd.isna(x) else pd.to_datetime(x).strftime("%Y-%m-%d %H:%M:%S")
 ).astype("string")
 
+# Coluna visual para o Status (com ícones coloridos)
+view["Status"] = view["status"].map(STATUS_TO_VIS).fillna("⚫ Pendente")
+view = view.drop(columns=["status"])  # escondemos a crua
+
 colcfg = {
     "site_nome": st.column_config.TextColumn("Site", disabled=True, width="medium"),
     "data": st.column_config.TextColumn("Data", disabled=True, width="small"),
-    "status": st.column_config.SelectboxColumn("Status", options=["Pendente","Aprovada","Rejeitada"], required=True, width="small"),
+    "Status": st.column_config.SelectboxColumn(
+        "Status", options=VIS_OPTIONS, required=True, width="small"
+    ),
     "observacao": st.column_config.TextColumn("Observação", width="medium"),
     "validador": st.column_config.TextColumn("Validador", width="small"),
     "data_validacao": st.column_config.TextColumn("Data validação", disabled=True, width="medium"),
@@ -394,18 +421,27 @@ colcfg = {
 
 editor_key = f"ed_{mes_ano}_{abs(hash(tuple(sel_sites)))%100000}"
 edited = st.data_editor(
-    view, num_rows="fixed", width='stretch', column_config=colcfg,
-    disabled=["site_nome","data","data_validacao"], key=editor_key,
+    view,
+    num_rows="fixed",
+    width='stretch',
+    column_config=colcfg,
+    disabled=["site_nome","data","data_validacao"],
+    key=editor_key,
 )
 
 st.markdown("</div>", unsafe_allow_html=True)
 
 # ============================================================================
-# DETECTA ALTERAÇÕES
+# DETECTA ALTERAÇÕES (comparando já mapeado para status real)
 # ============================================================================
-def _unsaved_mask(orig: pd.DataFrame, ed: pd.DataFrame) -> pd.Series:
-    a = orig[["site_nome","data","status","observacao","validador"]].copy()
-    b = ed[["site_nome","data","status","observacao","validador"]].copy()
+def _normalize_for_compare(df_disp: pd.DataFrame) -> pd.DataFrame:
+    df = df_disp.copy()
+    df["status"] = df["Status"].map(VIS_TO_STATUS).fillna("Pendente")
+    return df[["site_nome","data","status","observacao","validador"]]
+
+def _unsaved_mask(orig_display: pd.DataFrame, ed_display: pd.DataFrame) -> pd.Series:
+    a = _normalize_for_compare(orig_display)
+    b = _normalize_for_compare(ed_display)
     return (a.values != b.values).any(axis=1)
 
 changed_mask = _unsaved_mask(view, edited)
@@ -427,9 +463,12 @@ def _exportar_excel_bytes(df: pd.DataFrame) -> bytes:
         out.to_excel(writer, index=False, sheet_name="validacao")
     buf.seek(0); return buf.read()
 
-def _aplicar_salvamento(edited_df: pd.DataFrame):
+def _aplicar_salvamento(edited_display: pd.DataFrame):
     base = st.session_state.df_validado.copy()
-    e = edited_df.copy()
+    e = edited_display.copy()
+
+    # Converte de volta para o status real e data
+    e["status"] = e["Status"].map(VIS_TO_STATUS).fillna("Pendente")
     e["data"] = pd.to_datetime(e["data"]).dt.date
 
     keys = ["site_nome","data"]
@@ -452,11 +491,15 @@ def _aplicar_salvamento(edited_df: pd.DataFrame):
         xlsb = _exportar_excel_bytes(merged)
         meta = gh_save_snapshot(xlsb, author=st.session_state.get("usuario_logado",""))
         st.session_state.ultimo_meta = meta
-        # ✅ mensagem amigável, sem path
+        # carimbo local = horário retornado
+        st.session_state["__last_saved_ts"] = meta.get("saved_at_utc")
         stamp = meta.get("saved_at_utc","").replace("T"," ").replace("Z"," UTC")
         st.session_state["__last_save_ok"] = f"Última atualização em {stamp}"
-    except Exception as e:
-        st.session_state["__last_save_ok"] = f"Atualização local concluída. Publicação remota indisponível."
+    except Exception:
+        # sem publish: registra agora (UTC) como carimbo local
+        now_utc = dt.datetime.now(dt.timezone.utc).isoformat().replace("+00:00","Z")
+        st.session_state["__last_saved_ts"] = now_utc
+        st.session_state["__last_save_ok"] = "Atualização local concluída. Publicação remota indisponível."
     _rerun()
 
 save_clicked = st.button("💾 Salvar alterações", type="primary", disabled=(unsaved == 0))
@@ -484,9 +527,12 @@ if dias_disponiveis:
             xlsb = _exportar_excel_bytes(base)
             meta = gh_save_snapshot(xlsb, author=st.session_state.get("usuario_logado",""))
             st.session_state.ultimo_meta = meta
+            st.session_state["__last_saved_ts"] = meta.get("saved_at_utc")
             stamp = meta.get("saved_at_utc","").replace("T"," ").replace("Z"," UTC")
             st.session_state["__last_save_ok"] = f"{msg_ok} em {d_sel}. Última atualização em {stamp}"
         except Exception:
+            now_utc = dt.datetime.now(dt.timezone.utc).isoformat().replace("+00:00","Z")
+            st.session_state["__last_saved_ts"] = now_utc
             st.session_state["__last_save_ok"] = f"{msg_ok} em {d_sel}. Publicação remota indisponível."
         _rerun()
 
