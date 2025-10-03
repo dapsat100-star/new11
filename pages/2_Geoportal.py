@@ -486,7 +486,7 @@ else:
             x=df_plot["date"],
             y=df_plot["metano"],
             mode="lines+markers",
-            name="Taxa de Metano",
+            name="Taxa de Metano (kgCH4/hr)",
             line=dict(**line_kwargs),
             error_y=dict(type="data", array=err_array, visible=bool(show_unc_bars), thickness=1.2, width=3),
         )
