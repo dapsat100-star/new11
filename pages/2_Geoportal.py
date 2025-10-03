@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 # pages/2_Geoportal.py
-# Geoportal — 1 único gráfico: linha (spline opcional) + barras de incerteza
+# Geoportal — gráfico único (linha+spline opcional) + barras de incerteza + PDF com unidades
 
 import io
 import base64
@@ -24,10 +24,6 @@ try:
     HAVE_MAP = True
 except Exception:
     HAVE_MAP = False
-
-# URL/atribuição do mosaico de satélite (Esri World Imagery)
-ESRI_SAT_URL = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
-ESRI_ATTR    = "Tiles © Esri — Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community"
 
 # PDF deps
 from datetime import datetime, timezone
@@ -68,7 +64,7 @@ section[data-testid="stSidebar"], aside[data-testid="stSidebar"] {
 div[data-testid="collapsedControl"] { display: none !important; }
 button[kind="header"] { display: none !important; }
 
-/* Remover navegação multipágina nativa (usaremos page_link) */
+/* Remover navegação multipágina nativa */
 div[data-testid="stSidebarNav"] { display: none !important; }
 section[data-testid="stSidebar"] nav,
 section[data-testid="stSidebar"] [role="navigation"] { display: none !important; }
@@ -94,8 +90,8 @@ main.block-container { padding-top: 0.0rem !important; }
     unsafe_allow_html=True,
 )
 
-# === Logo no canto superior direito ===
-logo_ui_path = Path(__file__).parent / "logomavipe.jpeg"  # arquivo dentro de /pages
+# === Logo no canto superior direito (se existir ao lado deste arquivo) ===
+logo_ui_path = Path(__file__).parent / "logomavipe.jpeg"
 if logo_ui_path.exists():
     b64_logo = base64.b64encode(logo_ui_path.read_bytes()).decode("ascii")
     st.markdown(
@@ -139,7 +135,7 @@ with st.sidebar:
         icon="🛰️",
     )
 
-    # === Indicador de módulo ativo (caixa no retângulo vermelho) ===
+    # === Indicador de módulo ativo ===
     st.markdown(
         """
         <div style="
@@ -252,9 +248,10 @@ def resolve_image_target(path_str: str) -> Optional[str]:
     if s.lower().startswith(("http://","https://")): return s
     return f"{DEFAULT_BASE_URL.rstrip('/')}/{s.lstrip('/')}"
 
-def extract_series(dfi: pd.DataFrame, date_cols_sorted, dates_ts_sorted, row_name="Taxa Metano "):
-    idx_map = {i.lower(): i for i in dfi.index}
-    key = idx_map.get(row_name.lower())
+def extract_series(dfi: pd.DataFrame, date_cols_sorted, dates_ts_sorted, row_name="Taxa Metano"):
+    """Extrai série temporal do parâmetro `row_name`."""
+    idx_map = {str(i).lower().strip(): i for i in dfi.index}
+    key = idx_map.get(row_name.lower().strip())
     rows = []
     if key is not None:
         for i, col in enumerate(date_cols_sorted):
@@ -360,6 +357,8 @@ with left:
                     tiles=None
                 )
                 # Camadas base
+                ESRI_SAT_URL = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
+                ESRI_ATTR    = "Tiles © Esri — Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community"
                 folium.TileLayer(
                     tiles=ESRI_SAT_URL,
                     attr=ESRI_ATTR,
@@ -376,7 +375,7 @@ with left:
                     show=(base_choice.startswith("OpenStreetMap"))
                 ).add_to(m)
 
-                # 🔴 CircleMarker (SVG: não depende de imagens externas)
+                # Marcador
                 folium.CircleMarker(
                     [float(rec["_lat"]), float(rec["_long"])],
                     radius=8,
@@ -388,9 +387,7 @@ with left:
                     tooltip=site
                 ).add_to(m)
 
-                # Controle de camadas
                 folium.LayerControl(collapsed=False).add_to(m)
-
                 st_folium(m, height=420, use_container_width=True)
             except Exception as e:
                 st.caption(f"[Mapa indisponível: {e}]")
@@ -403,14 +400,15 @@ with right:
     dfi["Parametro"] = dfi["Parametro"].astype(str).str.strip()
     dfi = dfi.set_index("Parametro", drop=True)
 
+    # Métricas rápidas (tenta achar por aliases)
     k1, k2, k3 = st.columns(3)
-    v_taxa  = get_from_dfi(dfi, selected_col, "Taxa Metano (kg")
-    v_inc   = get_from_dfi(dfi, selected_col, "Incerteza")
-    v_vento = get_from_dfi(dfi, selected_col, "Velocidade do Vento")
+    v_taxa  = get_from_dfi(dfi, selected_col, "Taxa Metano", "Taxa de Metano", "Fluxo Metano", "Fluxo CH4")
+    v_inc   = get_from_dfi(dfi, selected_col, "Incerteza", "Incerteza (%)", "Erro", "Uncertainty")
+    v_vento = get_from_dfi(dfi, selected_col, "Velocidade do Vento", "Vento", "Wind Speed")
 
-    k1.metric("Taxa Metano", f"{v_taxa}" if pd.notna(v_taxa) else "—")
-    k2.metric("Incerteza", f"{v_inc}" if pd.notna(v_inc) else "—")
-    k3.metric("Vento", f"{v_vento}" if pd.notna(v_vento) else "—")
+    k1.metric("Taxa Metano (kgCH4/hr)", f"{v_taxa}" if pd.notna(v_taxa) else "—")
+    k2.metric("Incerteza (%)", f"{v_inc}" if pd.notna(v_inc) else "—")
+    k3.metric("Vento (m/s)", f"{v_vento}" if pd.notna(v_vento) else "—")
 
     st.markdown("---")
     st.caption("Tabela completa (parâmetro → valor):")
@@ -437,8 +435,8 @@ with right:
             continue
         if _norm(ix) == "data de aquisicao":
             try:
-                dt = pd.to_datetime(v, dayfirst=True, errors="raise")
-                table_df.at[ix, "Valor"] = dt.strftime("%Y-%m-%d")  # só data
+                dtv = pd.to_datetime(v, dayfirst=True, errors="raise")
+                table_df.at[ix, "Valor"] = dtv.strftime("%Y-%m-%d")
             except Exception:
                 table_df.at[ix, "Valor"] = str(v).replace(" 00:00:00", "")
         else:
@@ -502,7 +500,7 @@ else:
         )
 
     fig_line.update_layout(
-        template="plotly_white", xaxis_title="Data", yaxis_title="Taxa de Metano (kgCH4/hr) ",
+        template="plotly_white", xaxis_title="Data", yaxis_title="Taxa de Metano (kgCH4/hr)",
         margin=dict(l=10, r=10, t=30, b=10), height=420,
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
     )
@@ -617,23 +615,46 @@ def build_report_pdf(
 
     y = start_page()
 
-    def _s(v): return "—" if v is None or (isinstance(v,float) and pd.isna(v)) else str(v)
+    # helpers de formatação
+    def _is_na(v) -> bool:
+        from math import isnan
+        if v is None: return True
+        try:
+            return pd.isna(v)
+        except Exception:
+            try:
+                return isinstance(v, float) and isnan(v)
+            except Exception:
+                return False
 
-    # Métricas
+    def _fmt_num(v, unit: str) -> str:
+        if _is_na(v): return "—"
+        return f"{v} {unit}"
+
+    def _fmt_pct(v) -> str:
+        if _is_na(v): return "—"
+        s = str(v).strip()
+        if s.endswith("%"): s = s[:-1].strip()
+        return f"{s} %"
+
+    def _fmt_txt(v) -> str:
+        return "—" if _is_na(v) or str(v).strip() == "" else str(v)
+
+    # Métricas (com unidades)
     c.setFont("Helvetica-Bold", 12); c.drawString(margin, y, "Métricas"); y -= 16
     c.setFont("Helvetica", 11)
     for line in (
-        f"• Taxa Metano: {_s(taxa)}",
-        f"• Incerteza: {_s(inc)}",
-        f"• Velocidade do Vento: {_s(vento)}",
-        f"• Satélite: {_s(satellite)}",
+        f"• Taxa Metano: {_fmt_num(taxa, 'kgCH4/hr')}",
+        f"• Incerteza: {_fmt_pct(inc)}",
+        f"• Velocidade do Vento: {_fmt_num(vento, 'm/s')}",
+        f"• Satélite: {_fmt_txt(satellite)}",
     ):
         c.drawString(margin, y, line); y -= 14
 
     y -= 10; c.setStrokeColorRGB(*ACCENT); c.setLineWidth(0.7)
     c.line(margin, y, W - margin, y); y -= 14; c.setStrokeColorRGB(0,0,0)
 
-    # Figura 1 — Imagem principal (se houver) + LEGENDA
+    # Figura 1 — Imagem principal (se houver) + legenda
     if img_url:
         main_img, iw, ih = _image_reader_from_url(img_url)
         if main_img:
@@ -646,7 +667,7 @@ def build_report_pdf(
             c.drawString(margin, y - h - 12, "Figura 1 - Concentração de Metano em ppb")
             y -= h + 26
 
-    # Figura 2 — Gráfico + LEGENDA
+    # Figura 2 — Gráfico + legenda
     if fig1 is not None:
         try:
             png1 = _export_fig_to_png_bytes(fig1)
@@ -677,16 +698,16 @@ def build_report_pdf(
 # ===================== Exportar PDF (UI) =====================
 
 with right:
-    taxa      = get_from_dfi(dfi, selected_col, "Taxa Metano")
-    inc       = get_from_dfi(dfi, selected_col, "Incerteza")
-    vento     = get_from_dfi(dfi, selected_col, "Velocidade do Vento")
+    taxa      = get_from_dfi(dfi, selected_col, "Taxa Metano", "Taxa de Metano", "Fluxo Metano", "Fluxo CH4")
+    inc       = get_from_dfi(dfi, selected_col, "Incerteza", "Incerteza (%)", "Erro", "Uncertainty")
+    vento     = get_from_dfi(dfi, selected_col, "Velocidade do Vento", "Vento", "Wind Speed")
     satellite = get_from_dfi(dfi, selected_col, "Satelite", "Satélite", "Satellite", "Sat")
 
 img_url = resolve_image_target(rec.get("Imagem"))
 
 st.markdown("---")
 st.subheader("📄 Exportar PDF")
-st.caption("Relatório com faixa superior, logo, métricas, imagem e o gráfico atual (linha + barras de incerteza). Timestamp em UTC.")
+st.caption("Relatório com faixa superior, logo, métricas (com unidades), imagem e o gráfico atual. Timestamp em UTC.")
 
 if st.button("Gerar PDF (dados + gráfico)", type="primary", use_container_width=True):
     pdf_bytes = build_report_pdf(
