@@ -358,7 +358,7 @@ meta_html = f"Última atualização em: {stamp}"
 st.markdown(
     f"""
 <div class="appbar"><div class="appbar-inner">
-  <div><h1>Calendário de Validação</h1><div class="meta">{meta_html}</div></div>
+  <div><h1>Cronograma de Passes de Satélites</h1><div class="meta">{meta_html}</div></div>
   <div>{badge}</div>
 </div></div>
 """,
