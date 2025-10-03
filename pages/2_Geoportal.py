@@ -139,6 +139,27 @@ with st.sidebar:
         icon="🛰️",
     )
 
+    # === Indicador de módulo ativo (caixa no retângulo vermelho) ===
+    st.markdown(
+        """
+        <div style="
+            margin-top: 10px;
+            background-color: #eef6f9;
+            padding: 12px 14px;
+            border-radius: 10px;
+            font-size: 0.95rem;
+            color: #0a4b68;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            border: 1px solid #d7ecf3;
+        ">
+            📍 Módulo ativo:&nbsp;<span>Geoportal</span>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
     st.markdown("---")
 
     st.header("📁 Carregar o Excel")
