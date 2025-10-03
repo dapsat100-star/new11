@@ -45,7 +45,7 @@ import matplotlib.pyplot as plt
 st.set_page_config(
     page_title="Geoportal — Metano",
     layout="wide",
-    initial_sidebar_state="expanded"   # ✅ sempre expandida
+    initial_sidebar_state="expanded"
 )
 
 # === CSS global desta página ===
@@ -55,34 +55,40 @@ st.markdown(
 /* Esconde o cabeçalho nativo */
 header[data-testid="stHeader"] { display: none !important; }
 
-/* Sidebar SEMPRE visível/expandida */
+/* Sidebar sempre visível, sem colapsar, mais larga para caber o texto completo */
 section[data-testid="stSidebar"], aside[data-testid="stSidebar"] {
   display: block !important;
   visibility: visible !important;
   transform: none !important;
+  min-width: 400px !important;
+  width: 400px !important;
 }
 
-/* NUNCA mostrar o botão de colapsar */
+/* Nunca mostrar o botão de colapsar */
 div[data-testid="collapsedControl"] { display: none !important; }
+button[kind="header"] { display: none !important; }
 
-/* REMOVER menu multipágina nativo da sidebar (vamos usar page_link) */
+/* Remover navegação multipágina nativa (usaremos page_link) */
 div[data-testid="stSidebarNav"] { display: none !important; }
-section[data-testid="stSidebar"] nav, 
+section[data-testid="stSidebar"] nav,
 section[data-testid="stSidebar"] [role="navigation"] { display: none !important; }
 
-/* Logo fixo no topo-direito */
+/* Não truncar texto dos links da sidebar */
+section[data-testid="stSidebar"] a[role="link"],
+section[data-testid="stSidebar"] [data-testid="stPageLink"] {
+  white-space: normal !important;
+  overflow: visible !important;
+  text-overflow: clip !important;
+  display: block !important;
+  line-height: 1.25 !important;
+  word-break: break-word !important;
+}
+
+/* Logo fixo no topo-direito (opcional) */
 #top-right-logo { position: fixed; top: 12px; right: 16px; z-index: 1000; }
 
 /* Aproxima o conteúdo do topo (título sobe) */
 main.block-container { padding-top: 0.0rem !important; }
-
-/* Largura mínima da sidebar (evita encolher) */
-@media (max-width: 3000px){
-  section[data-testid="stSidebar"]{
-    min-width: 300px !important;
-    width: 300px !important;
-  }
-}
 </style>
 """,
     unsafe_allow_html=True,
@@ -99,7 +105,7 @@ if logo_ui_path.exists():
 
 st.title("📷 Geoportal de Metano — gráfico único")
 
-# ---- Guard de sessão (compatível com app novo e legado) ----
+# ---- Guard de sessão ----
 is_auth = bool(st.session_state.get("user")) or bool(st.session_state.get("authentication_status"))
 user_name = st.session_state.get("name") or st.session_state.get("username") or st.session_state.get("user")
 
@@ -127,8 +133,11 @@ with st.sidebar:
 
     AGENDA_PAGE = _first_existing("pages/4_Agendamento_de_Imagens.py", "4_Agendamento_de_Imagens.py")
 
-    # Apenas um link no menu, com novo nome
-    st.page_link(AGENDA_PAGE, label="CRONOGRAMA DE PASSES DE SATÉLITE", icon="🛰️")
+    st.page_link(
+        AGENDA_PAGE,
+        label="CRONOGRAMA DE PASSES DE SATÉLITES",
+        icon="🛰️",
+    )
 
     st.markdown("---")
 
