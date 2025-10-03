@@ -1,7 +1,9 @@
 # -*- coding: utf-8 -*-
 # pages/4_Agendamento_de_Imagens.py
-# Cronograma de Passes de Satélites — UX estilo SaaS + Sidebar fixa
-# Mantém todo o fluxo (filtros/edição/snapshot GitHub) inalterado.
+# UX estilo SaaS + Sidebar fixa + filtros com contorno visível
+# Fluxo de salvamento simples (1 botão) + auto-refresh após salvar
+# GitHub com token + fallback via latest.json + cache simples
+# Correção de merge/salvamento e uso de openpyxl
 
 from __future__ import annotations
 
@@ -37,20 +39,17 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# --- Sidebar fixa/visível + sem truncar + sem colapsar ---
-st.markdown("""
+# --- Sidebar fixa/visível + UI estilo SaaS + chips com contorno visível ---
+st.markdown(
+    """
 <style>
-/* Esconde header padrão do Streamlit */
-header[data-testid="stHeader"]{ display:none !important; }
-
 /* Remove o botão de colapso (hamburger) */
 div[data-testid="collapsedControl"] { display: none !important; }
-button[kind="header"] { display: none !important; }
 
-/* Força a sidebar aberta, fixa e com altura total + LARGA (400px) */
+/* Força a sidebar aberta, fixa e com altura total e largura maior (400px) */
 section[data-testid="stSidebar"], aside[data-testid="stSidebar"] {
   visibility: visible !important;
-  transform: none !important;
+  transform: translateX(0) !important;
   opacity: 1 !important;
   pointer-events: auto !important;
   width: 400px !important;
@@ -64,14 +63,14 @@ section[data-testid="stSidebar"], aside[data-testid="stSidebar"] {
   z-index: 100;
 }
 
-/* Esconde a navegação automática da sidebar (usaremos page_link) */
+/* Esconde a navegação automática da sidebar (usamos page_link manual) */
 div[data-testid="stSidebarNav"] { display: none !important; }
 section[data-testid="stSidebar"] nav,
 section[data-testid="stSidebar"] [role="navigation"] { display: none !important; }
 
-/* NÃO truncar texto de links */
+/* Não truncar textos de links na sidebar */
 section[data-testid="stSidebar"] a[role="link"],
-section[data-testid="stSidebar"] [data-testid="stPageLink"]{
+section[data-testid="stSidebar"] [data-testid="stPageLink"] {
   white-space: normal !important;
   overflow: visible !important;
   text-overflow: clip !important;
@@ -98,6 +97,9 @@ section[data-testid="stSidebar"] [data-testid="stPageLink"]{
 /* Barra de aviso */
 .unsaved {background:#fff; border:1px solid #e5e7eb; border-radius:14px; padding:10px 14px;
   box-shadow:0 8px 24px rgba(16,24,40,.12); display:flex; gap:10px; align-items:center;}
+
+/* Esconde header padrão do Streamlit */
+header[data-testid="stHeader"]{ display:none !important; }
 
 /* ===== Sidebar: inputs/chips com contornos visíveis ===== */
 section[data-testid="stSidebar"] {
@@ -135,11 +137,10 @@ section[data-testid="stSidebar"] div[data-baseweb="tag"] svg { fill: #6b7280 !im
 section[data-testid="stSidebar"] div[data-baseweb="tag"]:hover svg { fill: #374151 !important; }
 section[data-testid="stSidebar"] h2, 
 section[data-testid="stSidebar"] h3 { color: #111827 !important; }
-
-/* Conteúdo principal mais largo */
-.reportview-container .main .block-container {max-width: 1320px; padding-top: .6rem; padding-bottom: 4rem;}
 </style>
-""", unsafe_allow_html=True)
+""",
+    unsafe_allow_html=True,
+)
 
 # ============================================================================
 # RERUN compatível
@@ -155,7 +156,8 @@ def _rerun():
 # ============================================================================
 def _logo_b64_from(path: str) -> Optional[str]:
     p = Path(path)
-    if not p.exists(): return None
+    if not p.exists():
+        return None
     try:
         return base64.b64encode(p.read_bytes()).decode("utf-8")
     except Exception:
@@ -163,17 +165,19 @@ def _logo_b64_from(path: str) -> Optional[str]:
 
 _LOGO_B64 = _logo_b64_from("logomavipe.jpeg")
 if _LOGO_B64:
-    st.markdown(f"""
-    <div style="position:fixed;top:12px;right:20px;z-index:9999;pointer-events:none">
-      <img src="data:image/jpeg;base64,{_LOGO_B64}" style="height:100px;width:auto;opacity:.98"/>
-    </div>
-    """, unsafe_allow_html=True)
+    st.markdown(
+        f"""
+<div style="position:fixed;top:12px;right:20px;z-index:9999;pointer-events:none">
+  <img src="data:image/jpeg;base64,{_LOGO_B64}" style="height:100px;width:auto;opacity:.98"/>
+</div>
+""",
+        unsafe_allow_html=True,
+    )
 
 # ============================================================================
-# GITHUB utils (token + fallback + cache) — compatível com nomes antigos/novos
+# GITHUB utils (token + fallback + cache)
 # ============================================================================
 def _conf_get(*keys, default: str = "") -> str:
-    """Procura na ordem: os.environ -> st.secrets, aceitando vários aliases."""
     for k in keys:
         v = os.getenv(k)
         if v:
@@ -190,14 +194,12 @@ def _gh_token() -> str:
     return _conf_get("GITHUB_TOKEN", "github_token")
 
 def _gh_repo() -> str:
-    # novo nome: REPO_CRONOGRAMA; antigo: github_repo
     return _conf_get("REPO_CRONOGRAMA", "github_repo")
 
 def _gh_branch() -> str:
     return _conf_get("GITHUB_BRANCH", "github_branch", default="main")
 
 def _gh_root() -> str:
-    # novo: GH_DATA_ROOT; antigos: gh_data_root | data_root
     return _conf_get("GH_DATA_ROOT", "gh_data_root", "data_root", default="data/validado")
 
 def _gh_headers() -> Dict[str, str]:
@@ -234,7 +236,8 @@ def gh_put_file(path: str, content_bytes: bytes, message: str, sha: Optional[str
     payload = {"message": message,
                "content": base64.b64encode(content_bytes).decode("utf-8"),
                "branch": _gh_branch()}
-    if sha: payload["sha"] = sha
+    if sha:
+        payload["sha"] = sha
     r = requests.put(url, headers=_gh_headers(), json=payload, timeout=30)
     if r.status_code not in (200, 201):
         raise RuntimeError(f"Falha ao salvar no GitHub ({r.status_code}): {r.text}")
@@ -243,7 +246,9 @@ def gh_put_file(path: str, content_bytes: bytes, message: str, sha: Optional[str
 def gh_save_snapshot(xls_bytes: bytes, author: Optional[str] = None) -> dict:
     root = _gh_root().rstrip("/")
     now  = dt.datetime.now(dt.timezone.utc)
-    yyyy = now.strftime("%Y"); mm = now.strftime("%m"); stamp = now.strftime("%Y%m%d-%H%M%S")
+    yyyy = now.strftime("%Y")
+    mm   = now.strftime("%m")
+    stamp = now.strftime("%Y%m%d-%H%M%S")
     excel_rel_path = f"{root}/{yyyy}/{mm}/validado-{stamp}.xlsx"
     gh_put_file(excel_rel_path, xls_bytes, f"[streamlit] snapshot {stamp} (autor={author or 'anon'})", None)
     latest = {"saved_at_utc": now.isoformat().replace("+00:00","Z"),
@@ -333,9 +338,13 @@ dfv = st.session_state.df_validado
 # ============================================================================
 # HELPERS
 # ============================================================================
-PT_MESES = ["janeiro","fevereiro","março","abril","maio","junho","julho","agosto","setembro","outubro","novembro","dezembro"]
+PT_MESES = [
+    "janeiro","fevereiro","março","abril","maio","junho",
+    "julho","agosto","setembro","outubro","novembro","dezembro"
+]
 def mes_label_pt(yyyymm: str) -> str:
-    y, m = yyyymm.split("-"); return f"{PT_MESES[int(m)-1].capitalize()} de {y}"
+    y, m = yyyymm.split("-")
+    return f"{PT_MESES[int(m)-1].capitalize()} de {y}"
 
 def _editor_key(sites: List[str], mes: str) -> str:
     return f"ed_{mes}_{abs(hash(tuple(sites)))%100000}"
@@ -350,27 +359,26 @@ with st.sidebar:
         st.switch_page("app.py")
     st.markdown("---")
 
-    # ======= Apenas 1 link de módulo + indicador do ativo =======
-    st.markdown("### 🔗 Módulo")
+    # ======= SOMENTE 1 LINK + badge de módulo ativo =======
+    st.header("📚 Módulo")
     st.page_link("pages/2_Geoportal.py", label="🗺️ Geoportal")
     st.markdown(
         """
-        <div style="
-            margin-top: 10px;
-            background-color: #eef6f9;
-            padding: 12px 14px;
-            border-radius: 10px;
-            font-size: 0.95rem;
-            color: #0a4b68;
-            font-weight: 600;
-            display: flex;
-            align-items: center;
-            border: 1px solid #d7ecf3;
-        ">
-            📍 Módulo ativo:&nbsp;<span>Cronograma de Passes de Satélites</span>
-        </div>
-        """,
-        unsafe_allow_html=True
+<div style="
+  margin-top: 10px;
+  background-color: #eef6f9;
+  padding: 12px 14px;
+  border-radius: 10px;
+  font-size: 0.95rem;
+  color: #0a4b68;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  border: 1px solid #d7ecf3;">
+  📍 Módulo ativo:&nbsp;<span>Cronograma de Passes de Satélites</span>
+</div>
+""",
+        unsafe_allow_html=True,
     )
 
     st.markdown("---")
@@ -395,12 +403,15 @@ if "ultimo_meta" in st.session_state and st.session_state.ultimo_meta:
     meta = st.session_state.ultimo_meta
     meta_html = f'Último autor: {meta.get("author","—")} · Salvo (UTC): {meta.get("saved_at_utc","")} · <code>{meta.get("path","")}</code>'
 
-st.markdown(f"""
+st.markdown(
+    f"""
 <div class="appbar"><div class="appbar-inner">
-  <div><h1>Cronograma de Passes de Satélites</h1><div class="meta">{meta_html}</div></div>
+  <div><h1>Calendário de Validação</h1><div class="meta">{meta_html}</div></div>
   <div class="actions"></div>
 </div></div>
-""", unsafe_allow_html=True)
+""",
+    unsafe_allow_html=True,
+)
 
 # Mensagem pós-salvamento
 if st.session_state.get("__last_save_ok"):
@@ -437,7 +448,7 @@ colcfg = {
     "data_validacao": st.column_config.TextColumn("Data validação", disabled=True, width="medium"),
 }
 
-editor_key = _editor_key(sel_sites, mes_ano)
+editor_key = f"ed_{mes_ano}_{abs(hash(tuple(sel_sites)))%100000}"
 edited = st.data_editor(
     view,
     num_rows="fixed",
@@ -474,7 +485,8 @@ def _exportar_excel_bytes(df: pd.DataFrame) -> bytes:
     buf = io.BytesIO()
     with pd.ExcelWriter(buf, engine="openpyxl") as writer:
         out.to_excel(writer, index=False, sheet_name="validacao")
-    buf.seek(0); return buf.read()
+    buf.seek(0)
+    return buf.read()
 
 def _aplicar_salvamento(edited_df: pd.DataFrame):
     base = st.session_state.df_validado.copy()
@@ -486,7 +498,6 @@ def _aplicar_salvamento(edited_df: pd.DataFrame):
 
     merged = base.merge(e[keys + upd_cols], on=keys, how="left", suffixes=("", "_novo"))
     for c in upd_cols:
-        c_new = f"{c}_novo}"
         c_new = f"{c}_novo"
         if c_new in merged.columns:
             mask_upd = ~merged[c_new].isna()
@@ -589,7 +600,7 @@ def montar_calendario(df_mes: pd.DataFrame, mes_ano: str,
     for r in range(6):
         for c in range(7):
             d = grid[r, c]
-            if d is None: 
+            if d is None:
                 continue
             fill = cor_do_dia(d)
             fig.add_shape(type="rect", x0=c, x1=c+1, y0=5-r, y1=6-r,
