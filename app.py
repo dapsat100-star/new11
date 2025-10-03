@@ -318,7 +318,7 @@ if login_btn:
         st.session_state["users_cfg"] = users_cfg
         st.session_state["authentication_status"] = True
         st.toast(t["login_ok"], icon="✅")
-        st.experimental_rerun()
+        st.rerun()
 
 # =============================================================================
 # Troca obrigatória de senha (primeiro acesso)
@@ -342,7 +342,7 @@ if st.session_state.get("user") and st.session_state.get("must_change"):
             ):
                 st.success(t["pwd_changed"])
                 st.session_state["must_change"] = False
-                st.experimental_rerun()
+                st.rerun()
         else:
             st.error(t["pwd_change_error"])
 
@@ -371,7 +371,7 @@ if st.session_state.get("authentication_status") and not st.session_state.get("m
 
     if st.sidebar.button("Sair"):
         st.session_state.clear()
-        st.experimental_rerun()
+        st.rerun()
 
     # Redireciona na 1ª vez para o Geoportal (se existir)
     if not st.session_state.get("redirected_to_geoportal"):
