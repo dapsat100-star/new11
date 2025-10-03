@@ -1,0 +1,11 @@
+{
+  "cookie": { "name": "ogmp_app", "key": "troque-este-segredo", "expiry_days": 30 },
+  "users": {
+    "marcio": {
+      "name": "Marcio Perassoli",
+      "email": "marcio.perassoli@dapsat.com",
+      "password": "$2b$12$2Ul2yLqY2aZs4uYxN7vZ2O7c6f0S6n1S0pAOFmC3Y8w1wI0m0bZ1C",
+      "must_change": true
+    }
+  }
+}
