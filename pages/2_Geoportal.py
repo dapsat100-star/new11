@@ -103,7 +103,7 @@ if logo_ui_path.exists():
         unsafe_allow_html=True,
     )
 
-st.title("📷 Geoportal de Metano — gráfico único")
+st.title("📷 Geoportal")
 
 # ---- Guard de sessão ----
 is_auth = bool(st.session_state.get("user")) or bool(st.session_state.get("authentication_status"))
@@ -562,7 +562,7 @@ def _export_fig_to_png_bytes(fig) -> Optional[bytes]:
             coeffs = np.polyfit(xd, y.to_numpy(dtype=float), 1)
             yhat = np.poly1d(coeffs)(xd)
             ax.plot(x, yhat, linestyle='--')
-        ax.set_xlabel("Data"); ax.set_ylabel("Taxa de Metano")
+        ax.set_xlabel("Data"); ax.set_ylabel("Taxa de Metano (kgCH4/hr)")
         fig_m.autofmt_xdate()
         buf = io.BytesIO()
         fig_m.savefig(buf, format="png", bbox_inches="tight")
