@@ -251,6 +251,30 @@ if "user" in st.session_state:
         if Path(path).exists():
             st.sidebar.page_link(path, label=label, icon=icon)
 
+    # ===== Redireciona automaticamente para a primeira página disponível =====
+    def _first_existing(*paths: str) -> Optional[str]:
+        for p in paths:
+            if Path(p).exists():
+                return p
+        return None
+
+    if "redirected_once" not in st.session_state:
+        st.session_state["redirected_once"] = False
+
+    if not st.session_state["redirected_once"]:
+        target = _first_existing(
+            "pages/2_Geoportal.py",
+            "pages/4_Agendamento_de_Imagens.py",
+            "pages/3_Relatorio_OGMP_2_0.py",
+            "pages/1_Estatisticas_Gerais.py",
+        )
+        if target:
+            st.session_state["redirected_once"] = True
+            try:
+                st.switch_page(target)
+            except Exception:
+                st.info("Use os atalhos na sidebar para abrir os módulos.")
+
     if st.sidebar.button("Sair"):
         st.session_state.clear()
         st.rerun()
