@@ -42,7 +42,7 @@ def _bg_data_uri() -> Optional[str]:
     return None
 
 # =============================================================================
-# Idioma (PT/EN) – estável e sem “banners amarelos”
+# Idioma (PT/EN)
 # =============================================================================
 if "lang" not in st.session_state:
     st.session_state.lang = "pt"
@@ -124,14 +124,13 @@ TXT = {
 t = TXT["pt" if is_pt else "en"]
 
 # =============================================================================
-# CSS global + Background (se existir)
+# CSS global + Background
 # =============================================================================
 _bg = _bg_data_uri()
 
 st.markdown(
     f"""
 <style>
-/* Esconde header/toolbar nativos */
 header[data-testid="stHeader"]{{display:none!important;}}
 div[data-testid="stToolbar"]{{display:none!important;}}
 #MainMenu{{visibility:hidden;}}
@@ -139,7 +138,6 @@ footer{{visibility:hidden;}}
 [data-testid="stSidebarNav"]{{display:none!important;}}
 div[data-testid="collapsedControl"]{{display:block!important;}}
 
-/* Background (se houver) */
 [data-testid="stAppViewContainer"]::before {{
   content:""; position:fixed; inset:0; z-index:0; pointer-events:none;
   background: #f5f5f5 {'url(' + _bg + ')' if _bg else 'none'} no-repeat center top;
@@ -150,13 +148,10 @@ div[data-testid="collapsedControl"]{{display:block!important;}}
   position:relative; z-index:1;
 }}
 
-/* Card de login */
 .login-card{{
   padding:24px; border:1px solid #e7e7e7; border-radius:16px;
   box-shadow:0 8px 24px rgba(0,0,0,.06); background:#fff;
 }}
-
-/* Tipografia e botões do hero */
 .hero-title{{ font-size:44px; line-height:1.05; font-weight:900; letter-spacing:-0.02em; margin:8px 0 10px 0; }}
 .hero-sub{{ font-size:16px; color:#222; max-width:56ch; }}
 .hero-bullets li{{ margin:6px 0; }}
@@ -164,7 +159,33 @@ div[data-testid="collapsedControl"]{{display:block!important;}}
 .btn-primary{{ border:1px solid #111; background:#fff; color:#111; }}
 .btn-ghost{{ border:1px solid #e5e7eb; background:#fff; color:#111; }}
 
-/* Pílula de idioma (bandeiras) — canto superior esquerdo */
+/* 🌟 Patch: remove o retângulo branco fantasma de autofoco */
+section[data-testid="stTextInputRoot"] > div:empty,
+div[data-testid="stTextInput"] > div:empty {
+    display: none !important;
+}
+input:focus {
+    outline: none !important;
+    box-shadow: none !important;
+}
+
+/* ✨ Fundo translúcido cinza para os campos de input */
+[data-testid="stTextInput"] input {
+    background: rgba(240, 240, 240, 0.6) !important;
+    border: 1px solid #ddd !important;
+    border-radius: 8px !important;
+    padding: 8px 10px !important;
+    font-size: 14px !important;
+    transition: background 0.2s, box-shadow 0.2s;
+}
+
+[data-testid="stTextInput"] input:focus {
+    background: rgba(255, 255, 255, 0.75) !important;
+    box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.08) !important;
+    outline: none !important;
+}
+
+/* Pílula de idioma */
 .lang-pill {{
   position: fixed; top: 14px; left: 14px; z-index: 9999;
   display: inline-flex; align-items: center; gap: 10px;
@@ -182,57 +203,13 @@ div[data-testid="collapsedControl"]{{display:block!important;}}
 .lang-pill .divider {{
   width: 1px; height: 16px; background: #e5e7eb; display: inline-block;
 }}
-
-/* 🛠️ Patch 1: remove o retângulo fantasma (autofocus) antes do 1º input */
-section[data-testid="stTextInputRoot"] > div:empty,
-div[data-testid="stTextInput"] > div:empty {{
-  display: none !important;
-}}
-
-/* 🛠️ Patch 2: neutraliza autofill/overlay em todos os navegadores */
-[data-testid="stTextInput"] > div > div,
-[data-baseweb="input"] {{
-  background: transparent !important;
-  box-shadow: none !important;
-}}
-[data-testid="stTextInput"] input {{
-  background: transparent !important;
-  box-shadow: none !important;
-  outline: none !important;
-}}
-/* WebKit (Chrome/Edge/Safari) */
-input:-webkit-autofill,
-input:-webkit-autofill:hover,
-input:-webkit-autofill:focus {{
-  -webkit-box-shadow: 0 0 0 1000px transparent inset !important;
-  box-shadow: 0 0 0 1000px transparent inset !important;
-  -webkit-text-fill-color: #111 !important;
-  appearance: none !important;
-  background-clip: content-box !important;
-  caret-color: #111 !important;
-  transition: background-color 9999s ease-out, color 9999s ease-out;
-}}
-/* Firefox */
-input:-moz-autofill {{
-  box-shadow: 0 0 0 1000px transparent inset !important;
-  -moz-text-fill-color: #111 !important;
-}}
-/* iOS Chrome/Safari: botão de auto-fill de contatos */
-input::-webkit-contacts-auto-fill-button {{
-  visibility: hidden; display: none !important; pointer-events: none;
-}}
-/* Evita glow/borda em foco que lembra “placa” */
-[data-testid="stTextInput"] input:focus-visible {{
-  outline: none !important;
-  box-shadow: none !important;
-}}
 </style>
 """,
     unsafe_allow_html=True,
 )
 
 # =============================================================================
-# Pílula de idioma (sem abrir nova aba)
+# Pílula de idioma
 # =============================================================================
 BR = _img_b64("br.svg")
 GB = _img_b64("gb.svg")
@@ -293,19 +270,7 @@ def save_users(data, message, sha):
     return _gh_save_json(REPO_USERS, USERS_FILE, data, message, sha)
 
 # =============================================================================
-# Password helpers
-# =============================================================================
-def check_password(plain: str, hashed: str) -> bool:
-    try:
-        return bcrypt.checkpw(plain.encode(), hashed.encode())
-    except Exception:
-        return False
-
-def hash_password(plain: str) -> str:
-    return bcrypt.hashpw(plain.encode(), bcrypt.gensalt()).decode()
-
-# =============================================================================
-# Layout principal (hero + login)
+# Layout principal
 # =============================================================================
 left, right = st.columns([1.15, 1], gap="large")
 
@@ -339,54 +304,6 @@ with right:
     if c2.button(t["forgot"]):
         st.info(t["forgot_msg"])
     st.caption(t["confidential"])
-
-    # --- KILL WHITE OVERLAY (Chrome/Edge/Firefox/Safari) ---
-    st.markdown("""
-    <style>
-    section[data-testid="stTextInputRoot"] > div:empty,
-    div[data-testid="stTextInput"] > div:empty { display:none !important; }
-    [data-testid="stTextInput"] > div > div,
-    [data-baseweb="input"] { background:transparent !important; box-shadow:none !important; }
-    [data-testid="stTextInput"] input { background:transparent !important; box-shadow:none !important; outline:none !important; }
-    input:-webkit-autofill,
-    input:-webkit-autofill:hover,
-    input:-webkit-autofill:focus {
-      -webkit-box-shadow:0 0 0 1000px transparent inset !important;
-      box-shadow:0 0 0 1000px transparent inset !important;
-      -webkit-text-fill-color:#111 !important;
-      appearance:none !important;
-      background-clip:content-box !important;
-      caret-color:#111 !important;
-      transition: background-color 9999s ease-out, color 9999s ease-out;
-    }
-    input:-moz-autofill { box-shadow:0 0 0 1000px transparent inset !important; -moz-text-fill-color:#111 !important; }
-    input::-webkit-contacts-auto-fill-button { visibility:hidden; display:none !important; pointer-events:none; }
-    [data-testid="stTextInput"] input:focus-visible { outline:none !important; box-shadow:none !important; }
-    </style>
-    <script>
-    (function(){
-      const fields = Array.from(document.querySelectorAll('input[type="text"], input[type="password"]')));
-      for (const el of fields) {
-        el.setAttribute('autocomplete','off');
-        el.setAttribute('autocapitalize','none');
-        el.setAttribute('autocorrect','off');
-        el.setAttribute('spellcheck','false');
-        el.setAttribute('name','fld_'+Math.random().toString(36).slice(2));
-        el.setAttribute('inputmode','latin');
-      }
-      for (const el of fields) {
-        el.readOnly = true;
-        el.addEventListener('focus', () => { el.readOnly = false; }, { once:true });
-      }
-      const ghost = document.createElement('form');
-      ghost.style.display = 'none';
-      ghost.setAttribute('autocomplete','off');
-      ghost.innerHTML = '<input type="text" name="username"><input type="password" name="password" autocomplete="new-password">';
-      document.body.prepend(ghost);
-    })();
-    </script>
-    """, unsafe_allow_html=True)
-
     st.markdown("</div>", unsafe_allow_html=True)
 
 # =============================================================================
@@ -395,7 +312,7 @@ with right:
 if login_btn:
     users_cfg, users_sha = load_users()
     user_rec = users_cfg.get("users", {}).get(username)
-    if not user_rec or not check_password(password, user_rec.get("password", "")):
+    if not user_rec or not bcrypt.checkpw(password.encode(), user_rec.get("password", "").encode()):
         st.error(t["bad_credentials"])
     else:
         st.session_state["user"] = username
@@ -408,7 +325,7 @@ if login_btn:
         st.rerun()
 
 # =============================================================================
-# Troca obrigatória de senha (primeiro acesso)
+# Troca obrigatória de senha
 # =============================================================================
 if st.session_state.get("user") and st.session_state.get("must_change"):
     st.warning(t["must_change"])
@@ -419,8 +336,8 @@ if st.session_state.get("user") and st.session_state.get("must_change"):
         submitted = st.form_submit_button(t["save_pwd"])
     if submitted:
         rec = st.session_state["users_cfg"]["users"][st.session_state["user"]]
-        if check_password(old, rec.get("password", "")) and new1 == new2 and len(new1) >= 8:
-            rec["password"] = hash_password(new1)
+        if bcrypt.checkpw(old.encode(), rec.get("password", "").encode()) and new1 == new2 and len(new1) >= 8:
+            rec["password"] = bcrypt.hashpw(new1.encode(), bcrypt.gensalt()).decode()
             rec["must_change"] = False
             if save_users(
                 st.session_state["users_cfg"],
@@ -434,7 +351,7 @@ if st.session_state.get("user") and st.session_state.get("must_change"):
             st.error(t["pwd_change_error"])
 
 # =============================================================================
-# Área autenticada: sidebar + redirecionamento inicial
+# Área autenticada
 # =============================================================================
 def _first_existing(*paths: str) -> Optional[str]:
     for p in paths:
@@ -460,7 +377,6 @@ if st.session_state.get("authentication_status") and not st.session_state.get("m
         st.session_state.clear()
         st.rerun()
 
-    # Redireciona na 1ª vez para o Geoportal (se existir)
     if not st.session_state.get("redirected_to_geoportal"):
         st.session_state["redirected_to_geoportal"] = True
         target = GEO_PAGE or AGENDA_PAGE or RELATORIO_PAGE or ESTATS_PAGE
@@ -468,7 +384,7 @@ if st.session_state.get("authentication_status") and not st.session_state.get("m
             try:
                 st.switch_page(target)
             except Exception:
-                pass  # fallback
+                pass
 
 # =============================================================================
 # Rodapé
