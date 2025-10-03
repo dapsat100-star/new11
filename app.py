@@ -3,7 +3,7 @@ import os
 import json
 import base64
 from pathlib import Path
-from typing import Tuple, Dict, Any
+from typing import Tuple, Dict, Any, Optional
 
 import bcrypt
 import requests
@@ -15,7 +15,7 @@ from dotenv import load_dotenv
 # CONFIGURAÇÃO INICIAL
 # =========================
 st.set_page_config(
-    page_title="Plataforma OGMP 2.0",
+    page_title="Plataforma OGMP 2.0 - L5",
     page_icon="🛰️",
     layout="wide",
     initial_sidebar_state="collapsed",
@@ -25,64 +25,21 @@ load_dotenv()
 # =========================
 # VARIÁVEIS DE AMBIENTE (SECRETS)
 # =========================
-GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
-REPO_USERS = os.getenv("REPO_USERS")               # dapsat100-star/new11
-REPO_CRONOGRAMA = os.getenv("REPO_CRONOGRAMA")     # dapsat100-star/cronograma
+# Defina nas Secrets do Streamlit Cloud (Settings → Secrets) ou em .env:
+# GITHUB_TOKEN, REPO_USERS, REPO_CRONOGRAMA, GITHUB_BRANCH, GH_DATA_ROOT
+GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "")
+REPO_USERS = os.getenv("REPO_USERS", "")               # ex: dapsat100-star/new11
+REPO_CRONOGRAMA = os.getenv("REPO_CRONOGRAMA", "")     # ex: dapsat100-star/cronograma
 GITHUB_BRANCH = os.getenv("GITHUB_BRANCH", "main")
 GH_DATA_ROOT = os.getenv("GH_DATA_ROOT", "data/validado")
 
-HEADERS = {"Authorization": f"Bearer {GITHUB_TOKEN}", "Accept": "application/vnd.github+json"}
+HEADERS = {
+    "Authorization": f"Bearer {GITHUB_TOKEN}" if GITHUB_TOKEN else "",
+    "Accept": "application/vnd.github+json",
+}
 
 # =========================
-# DEBUG INICIAL
-# =========================
-st.sidebar.markdown("### 🐞 Debug - Variáveis")
-st.sidebar.write("GITHUB_TOKEN carregado?", bool(GITHUB_TOKEN))
-st.sidebar.write("REPO_USERS =", REPO_USERS)
-st.sidebar.write("REPO_CRONOGRAMA =", REPO_CRONOGRAMA)
-
-# Teste de conexão com GitHub (users.json)
-if GITHUB_TOKEN and REPO_USERS:
-    test_url = f"https://api.github.com/repos/{REPO_USERS}/contents/users.json"
-    r = requests.get(test_url, headers={"Authorization": f"Bearer {GITHUB_TOKEN}"})
-    st.sidebar.write("GitHub API status (users.json):", r.status_code)
-    if r.status_code != 200:
-        st.sidebar.code(r.text)
-
-# =========================
-# FUNÇÃO: BACKGROUND HERO
-# =========================
-def _bg_data_uri():
-    here = Path(__file__).parent
-    candidates = [here / "background.png", here / "assets" / "background.png"]
-    for p in candidates:
-        if p.exists():
-            mime = "image/png"
-            b64 = base64.b64encode(p.read_bytes()).decode("ascii")
-            return f"data:{mime};base64,{b64}"
-    return None
-
-_bg = _bg_data_uri()
-if _bg:
-    st.markdown(f"""
-    <style>
-    [data-testid="stAppViewContainer"]::before {{
-      content:"";
-      position: fixed; inset: 0;
-      z-index: 0; pointer-events: none;
-      background: #f5f5f5 url('{_bg}') no-repeat center top;
-      background-size: clamp(900px, 85vw, 1600px) auto;
-      opacity: .5;
-      filter: contrast(103%) brightness(101%);
-    }}
-    .block-container, [data-testid="stSidebar"], header, footer {{
-      position: relative; z-index: 1;
-    }}
-    </style>
-    """, unsafe_allow_html=True)
-
-# =========================
-# ESTILOS HERO E LOGIN
+# CSS / LAYOUT
 # =========================
 st.markdown("""
 <style>
@@ -98,7 +55,7 @@ div[data-testid="collapsedControl"]{ display:block !important; }
 .hero-wrap{ max-width: 560px; }
 .logo-card{
   display:inline-block; background:#fff; padding:14px; border-radius:18px;
-  box-shadow:0 6px 18px rgba(0,0,0,.06); border:1px solid #eee; margin-bottom:18px;
+  box-shadow: 0 6px 18px rgba(0,0,0,.06); border:1px solid #eee; margin-bottom:18px;
 }
 .hero-eyebrow{
   display:inline-block; font-size:12px; letter-spacing:.14em; text-transform:uppercase;
@@ -120,22 +77,55 @@ div[data-testid="collapsedControl"]{ display:block !important; }
 </style>
 """, unsafe_allow_html=True)
 
+# ===== Fundo com imagem (background.png na raiz ou /assets) =====
+def _bg_data_uri() -> Optional[str]:
+    here = Path(__file__).parent
+    for p in (here/"background.png", here/"assets"/"background.png"):
+        if p.exists():
+            b64 = base64.b64encode(p.read_bytes()).decode("ascii")
+            return f"data:image/png;base64,{b64}"
+    return None
+
+_bg = _bg_data_uri()
+if _bg:
+    st.markdown(f"""
+    <style>
+    [data-testid="stAppViewContainer"]::before {{
+      content:"";
+      position: fixed; inset: 0; z-index: 0; pointer-events: none;
+      background: #f5f5f5 url('{_bg}') no-repeat center top;
+      background-size: clamp(900px, 85vw, 1600px) auto; opacity: .5;
+      filter: contrast(103%) brightness(101%);
+    }}
+    .block-container, [data-testid="stSidebar"], header, footer {{
+      position: relative; z-index: 1;
+    }}
+    </style>
+    """, unsafe_allow_html=True)
+
 # =========================
 # FUNÇÕES GITHUB (JSON)
 # =========================
-def github_load_json(repo: str, path: str) -> Tuple[Dict[str, Any], str | None]:
+def github_load_json(repo: str, path: str) -> Tuple[Dict[str, Any], Optional[str]]:
+    if not (GITHUB_TOKEN and repo):
+        return {}, None
     url = f"https://api.github.com/repos/{repo}/contents/{path}?ref={GITHUB_BRANCH}"
-    r = requests.get(url, headers=HEADERS, timeout=15)
+    r = requests.get(url, headers=HEADERS, timeout=20)
     if r.status_code == 200:
         data = r.json()
         content = base64.b64decode(data["content"]).decode("utf-8")
         return json.loads(content), data.get("sha")
+    elif r.status_code == 404:
+        st.error(f"Arquivo `{path}` não encontrado no repositório `{repo}`.")
     else:
-        st.error(f"Erro ao acessar GitHub ({repo}/{path}): {r.status_code}")
+        st.error(f"Erro GitHub {r.status_code} ao ler `{repo}/{path}`.")
         st.code(r.text)
-        return {}, None
+    return {}, None
 
-def github_save_json(repo: str, path: str, content: dict, message: str, sha: str | None) -> bool:
+def github_save_json(repo: str, path: str, content: dict, message: str, sha: Optional[str]) -> bool:
+    if not (GITHUB_TOKEN and repo):
+        st.error("GITHUB_TOKEN ou repositório não configurado.")
+        return False
     payload = {
         "message": message,
         "content": base64.b64encode(json.dumps(content, indent=2).encode()).decode(),
@@ -144,11 +134,15 @@ def github_save_json(repo: str, path: str, content: dict, message: str, sha: str
     if sha:
         payload["sha"] = sha
     url = f"https://api.github.com/repos/{repo}/contents/{path}"
-    r = requests.put(url, headers=HEADERS, json=payload, timeout=15)
-    return r.status_code in (200, 201)
+    r = requests.put(url, headers=HEADERS, json=payload, timeout=20)
+    if r.status_code in (200, 201):
+        return True
+    st.error(f"Falha ao salvar `{repo}/{path}` ({r.status_code}).")
+    st.code(r.text)
+    return False
 
 # =========================
-# LOGIN - USERS.JSON
+# AUTENTICAÇÃO
 # =========================
 USERS_FILE = "users.json"
 
@@ -158,10 +152,11 @@ def check_password(plain: str, hashed: str) -> bool:
     except Exception:
         return False
 
-# =========================
-# HERO SECTION + LOGIN FORM
-# =========================
-left, right = st.columns([1.2, 1])
+def hash_password(plain: str) -> str:
+    return bcrypt.hashpw(plain.encode(), bcrypt.gensalt()).decode()
+
+# ===== HERO + LOGIN =====
+left, right = st.columns([1.2, 1], gap="large")
 
 with left:
     st.markdown("<div class='hero-wrap'>", unsafe_allow_html=True)
@@ -191,27 +186,100 @@ with right:
     login_btn = st.button("Entrar")
     st.markdown("</div>", unsafe_allow_html=True)
 
-# =========================
-# AUTENTICAÇÃO (com debug)
-# =========================
+# ===== PROCESSA LOGIN =====
 if login_btn:
-    st.write("🐞 DEBUG: Tentando login para usuário:", username)
     users_cfg, users_sha = github_load_json(REPO_USERS, USERS_FILE)
-    st.write("🐞 DEBUG: users_cfg =", users_cfg)
-
-    user_rec = users_cfg.get("users", {}).get(username)
-    st.write("🐞 DEBUG: user_rec =", user_rec)
-
+    user_rec = users_cfg.get("users", {}).get(username or "")
     if not user_rec or not check_password(password, user_rec["password"]):
         st.error("Usuário ou senha inválidos.")
     else:
         st.session_state["user"] = username
+        st.session_state["users_cfg"] = users_cfg
+        st.session_state["users_sha"] = users_sha
         st.rerun()
+
+# =========================
+# TROCA OBRIGATÓRIA DE SENHA
+# =========================
+if "user" in st.session_state:
+    # Recarrega sempre o arquivo para garantir estado consistente
+    users_cfg, users_sha = github_load_json(REPO_USERS, USERS_FILE)
+    st.session_state["users_cfg"] = users_cfg
+    st.session_state["users_sha"] = users_sha
+
+    rec = users_cfg.get("users", {}).get(st.session_state["user"], {})
+    if rec.get("must_change", False):
+        st.warning("Você está usando senha provisória. Defina uma **nova senha** para continuar.")
+        with st.form("form_change_pwd", clear_on_submit=False):
+            old = st.text_input("Senha atual", type="password")
+            new1 = st.text_input("Nova senha", type="password")
+            new2 = st.text_input("Confirme a nova senha", type="password")
+            sub = st.form_submit_button("Salvar nova senha")
+
+        if sub:
+            erros = []
+            if not check_password(old, rec.get("password","")):
+                erros.append("Senha atual incorreta.")
+            if new1 != new2:
+                erros.append("A nova senha e a confirmação não conferem.")
+            if len(new1) < 8:
+                erros.append("A nova senha deve ter pelo menos 8 caracteres.")
+            if erros:
+                for e in erros: st.error(f"• {e}")
+            else:
+                rec["password"] = hash_password(new1)
+                rec["must_change"] = False
+                ok = github_save_json(REPO_USERS, USERS_FILE, users_cfg,
+                                      f"chore(auth): password change for {st.session_state['user']}",
+                                      users_sha)
+                if ok:
+                    st.success("Senha alterada com sucesso ✅")
+                    st.rerun()
+                else:
+                    st.error("Falha ao salvar a nova senha no GitHub.")
 
 # =========================
 # ÁREA AUTENTICADA
 # =========================
 if "user" in st.session_state:
-    st.sidebar.success(f"Logado como: {st.session_state['user']}")
-    st.success("✅ Login realizado com sucesso.")
+    # Se ainda precisar trocar senha, não mostra módulos
+    rec = st.session_state.get("users_cfg", {}).get("users", {}).get(st.session_state["user"], {})
+    if rec.get("must_change", False) is True:
+        st.stop()
 
+    st.sidebar.success(f"Logado como: {st.session_state['user']}")
+    st.sidebar.markdown("## 📁 Módulos")
+
+    # Links para páginas (só aparecem se o arquivo existir)
+    for path, label, icon in [
+        ("pages/2_Geoportal.py", "Geoportal", "🗺️"),
+        ("pages/4_Agendamento_de_Imagens.py", "Agendamentos", "🗓️"),
+        ("pages/3_Relatorio_OGMP_2_0.py", "Relatórios", "📄"),
+        ("pages/1_Estatisticas_Gerais.py", "Estatísticas", "📊"),
+    ]:
+        if Path(path).exists():
+            st.sidebar.page_link(path, label=label, icon=icon)
+
+    if st.sidebar.button("Sair"):
+        st.session_state.clear()
+        st.rerun()
+
+    st.success("✅ Login realizado com sucesso.")
+    st.write("Aqui você pode integrar os módulos do SaaS.")
+
+    # Exemplo simples: verificar arquivo no repo CRONOGRAMA
+    example_file = f"{GH_DATA_ROOT}/agenda.xlsx"
+    data, sha = github_load_json(REPO_CRONOGRAMA, example_file)
+    if data:
+        st.info(f"Arquivo `{example_file}` encontrado no repositório {REPO_CRONOGRAMA}.")
+    else:
+        st.caption(f"Se `{example_file}` não existir, este aviso é esperado.")
+
+# =========================
+# FOOTER
+# =========================
+st.markdown("""
+<div style="margin-top:40px; padding:16px 0; border-top:1px solid #eee; font-size:12px; color:#444;">
+  DAP ATLAS · Ambiente: Produção · <a href="mailto:support@dapsistemas.com">Suporte</a>
+</div>
+""", unsafe_allow_html=True)
