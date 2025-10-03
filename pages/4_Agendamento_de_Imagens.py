@@ -2,7 +2,6 @@
 # pages/4_Agendamento_de_Imagens.py
 # Cronograma de Passes de Satélites — UI SaaS, sidebar fixa, status badge,
 # "Última atualização" com prioridade local e STATUS com cores (via ícones).
-
 from __future__ import annotations
 
 import io
@@ -170,7 +169,6 @@ def _gh_headers() -> Dict[str,str]:
     return h
 
 def _ping_github(ttl: int = 120) -> bool:
-    """Checagem leve de conectividade com cache em sessão."""
     key = "_gh_ping_cache"
     now = time.time()
     cache = st.session_state.get(key, {})
@@ -254,7 +252,6 @@ def _cached_list_all_xlsx(path: str, ttl: int = 300) -> List[str]:
     return data
 
 def load_latest_snapshot_df() -> Optional[pd.DataFrame]:
-    # tenta pegar o mais recente via API listagem (mantém sem expor paths)
     try:
         all_files = _cached_list_all_xlsx(_gh_root(), ttl=300)
         if not all_files: return None
@@ -303,7 +300,8 @@ def mes_label_pt(yyyymm: str) -> str:
 # SIDEBAR
 # ============================================================================
 with st.sidebar:
-    st.success(f"Logado como: {st.session_state.get('name') or st.session_state.get('username') or st.session_state.get('user')}")
+    user_display = st.session_state.get('name') or st.session_state.get('username') or st.session_state.get('user') or "usuário"
+    st.success(f"Logado como: {user_display}")
     if st.button("Sair", use_container_width=True):
         st.session_state.clear()
         st.switch_page("app.py")
@@ -331,9 +329,6 @@ with st.sidebar:
     idx = max(0, meses.index(mes_default)) if (mes_default in meses) else len(meses)-1
     mes_ano = st.selectbox("Mês", options=meses, index=idx)
     st.session_state["mes_ano"] = mes_ano
-
-    autor_atual = st.text_input("Seu nome (autor do commit)", value=st.session_state.get("usuario_logado","")).strip()
-    st.session_state["usuario_logado"] = autor_atual or "—"
 
 # ============================================================================
 # APP BAR (status + última atualização, priorizando salvamento local)
@@ -452,7 +447,7 @@ if unsaved > 0:
     st.markdown(f'<div class="unsaved"><strong>{unsaved}</strong> alteração(ões) não salvas.</div>', unsafe_allow_html=True)
 
 # ============================================================================
-# SALVAR (sem expor path) + atualiza "última atualização"
+# SALVAR (validador = usuário logado quando muda STATUS)
 # ============================================================================
 def _exportar_excel_bytes(df: pd.DataFrame) -> bytes:
     cols = ["site_nome","data","status","observacao","validador","data_validacao"]
@@ -474,31 +469,41 @@ def _aplicar_salvamento(edited_display: pd.DataFrame):
     e["data"] = pd.to_datetime(e["data"]).dt.date
 
     keys = ["site_nome","data"]
-    upd_cols = ["status","observacao","validador"]
 
-    merged = base.merge(e[keys + upd_cols], on=keys, how="left", suffixes=("", "_novo"))
-    for c in upd_cols:
+    merged = base.merge(e[keys + ["status","observacao","validador"]], on=keys, how="left", suffixes=("", "_novo"))
+
+    # Detecta linhas onde o STATUS foi realmente alterado
+    has_new = ~merged["status_novo"].isna()
+    status_changed = has_new & (merged["status_novo"] != merged["status"])
+
+    # Aplica mudanças de campos editados
+    for c in ["status","observacao","validador"]:
         c_new = f"{c}_novo"
         if c_new in merged.columns:
             mask_upd = ~merged[c_new].isna()
             merged.loc[mask_upd, c] = merged.loc[mask_upd, c_new]
             merged.drop(columns=[c_new], inplace=True, errors="ignore")
 
-    mudou = merged["status"].isin(["Aprovada","Rejeitada"]) & merged["data_validacao"].isna()
+    # Se STATUS mudou, grava o validador com o usuário logado
+    current_user = st.session_state.get('name') or st.session_state.get('username') or st.session_state.get('user') or ""
+    merged.loc[status_changed, "validador"] = current_user
+
+    # Timestamp de validação quando vira Aprovada/Rejeitada
     ts_now = dt.datetime.now(dt.timezone.utc).replace(tzinfo=None)
-    merged.loc[mudou, "data_validacao"] = ts_now
+    status_now_is_def = merged["status"].isin(["Aprovada","Rejeitada"])
+    need_stamp = status_changed & status_now_is_def
+    merged.loc[need_stamp, "data_validacao"] = ts_now
 
     st.session_state.df_validado = merged
     try:
         xlsb = _exportar_excel_bytes(merged)
-        meta = gh_save_snapshot(xlsb, author=st.session_state.get("usuario_logado",""))
+        # usa usuário logado como autor
+        meta = gh_save_snapshot(xlsb, author=current_user)
         st.session_state.ultimo_meta = meta
-        # carimbo local = horário retornado
         st.session_state["__last_saved_ts"] = meta.get("saved_at_utc")
         stamp = meta.get("saved_at_utc","").replace("T"," ").replace("Z"," UTC")
         st.session_state["__last_save_ok"] = f"Última atualização em {stamp}"
     except Exception:
-        # sem publish: registra agora (UTC) como carimbo local
         now_utc = dt.datetime.now(dt.timezone.utc).isoformat().replace("+00:00","Z")
         st.session_state["__last_saved_ts"] = now_utc
         st.session_state["__last_save_ok"] = "Atualização local concluída. Publicação remota indisponível."
@@ -521,13 +526,21 @@ if dias_disponiveis:
     def _lote(status_final: str, msg_ok: str):
         base = st.session_state.df_validado
         idx = (pd.to_datetime(base["data"]).dt.date == d_sel) & base["site_nome"].isin(sel_sites) & (base["yyyymm"] == mes_ano)
+
+        # aplica status
         base.loc[idx, "status"] = status_final
-        ts_now = dt.datetime.now(dt.timezone.utc).replace(tzinfo=None)
-        base.loc[idx & base["data_validacao"].isna(), "data_validacao"] = ts_now
+        # grava validador do usuário logado nas linhas afetadas
+        current_user = st.session_state.get('name') or st.session_state.get('username') or st.session_state.get('user') or ""
+        base.loc[idx, "validador"] = current_user
+        # timestamp para aprov/rej
+        if status_final in ("Aprovada", "Rejeitada"):
+            ts_now = dt.datetime.now(dt.timezone.utc).replace(tzinfo=None)
+            base.loc[idx, "data_validacao"] = ts_now
+
         st.session_state.df_validado = base
         try:
             xlsb = _exportar_excel_bytes(base)
-            meta = gh_save_snapshot(xlsb, author=st.session_state.get("usuario_logado",""))
+            meta = gh_save_snapshot(xlsb, author=current_user)
             st.session_state.ultimo_meta = meta
             st.session_state["__last_saved_ts"] = meta.get("saved_at_utc")
             stamp = meta.get("saved_at_utc","").replace("T"," ").replace("Z"," UTC")
