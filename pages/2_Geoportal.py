@@ -730,7 +730,7 @@ def build_report_pdf(
     for ln in lines:
         c.drawString(margin, y, ln); y -= 14
     if mean_val is not None:
-        c.drawString(margin, y, f"• Emissão média (kg/h) nas passagens: {mean_val:.0f}"); y -= 14
+        c.drawString(margin, y, f"• Emissão média (kgCH4/h) nas passagens: {mean_val:.0f}"); y -= 14
 
     y -= 6; c.setStrokeColorRGB(*ACCENT); c.setLineWidth(0.7)
     c.line(margin, y, W - margin, y); y -= 14; c.setStrokeColorRGB(0,0,0)
@@ -740,7 +740,7 @@ def build_report_pdf(
         c.setFont("Helvetica-Bold", 12); c.drawString(margin, y, "4) Resultados Quantitativos (por data)")
         y -= 18; c.setFont("Helvetica", 9)
         # cabeçalho
-        headers = ["Data", "Emissão (kg/h)", "Incerteza (%)", "Vento (m/s)"]
+        headers = ["Data", "Emissão (kgCH4/h)", "Incerteza (%)", "Vento (m/s)"]
         col_w = [(W - 2*margin) * w for w in (0.22, 0.26, 0.22, 0.22)]
         x0 = margin
         # desenha header
@@ -800,7 +800,7 @@ def build_report_pdf(
                 c.showPage(); y = start_page()
             c.drawImage(img1, margin, y - h, width=w, height=h, mask='auto')
             c.setFont("Helvetica-Oblique", 9)
-            c.drawString(margin, y - h - 12, "Figura 2 - Série Histórica de Taxa de Metano (kg/h) com incerteza")
+            c.drawString(margin, y - h - 12, "Figura 2 - Série Histórica de Taxa de Metano (kgCH4/h) com incerteza")
             y -= h + 26
         except Exception as e:
             c.setFont("Helvetica", 9)
@@ -813,22 +813,10 @@ def build_report_pdf(
     y -= 16; c.setFont("Helvetica", 10)
     txt = (
         "As medições apresentadas correspondem ao Nível 5 (site-level, top-down) do framework OGMP 2.0. "
-        "Não foi realizada reconciliação com inventário L4 por ausência de dados operacionais. "
-        "Os resultados servem como base para evolução ao padrão OGMP Gold Standard."
-    )
+            )
     c.drawString(margin, y, txt); y -= 28
 
-    # ===== 7. Recomendações Estratégicas =====
-    c.setFont("Helvetica-Bold", 12); c.drawString(margin, y, "7) Recomendações Estratégicas")
-    y -= 16; c.setFont("Helvetica", 10)
-    for line in (
-        "• Fornecer inventário de fontes (válvulas, compressores, flare) para reconciliação L4–L5;",
-        "• Compartilhar logs de operação (ex.: flare) para reduzir incertezas;",
-        "• Estabelecer rotina de troca de dados para OGMP Gold Standard;",
-        "• Considerar campanhas combinadas (satélite + OGI/drones) para validação.",
-    ):
-        c.drawString(margin, y, line); y -= 14
-
+    
     # Rodapé
     c.setFont("Helvetica", 8); c.setFillColorRGB(0.42,0.45,0.50)
     c.drawRightString(W - margin, 12, f"pág {page_no}")
