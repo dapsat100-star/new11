@@ -646,7 +646,7 @@ def build_report_pdf(
         c.setFont("Helvetica", 10)
         c.drawString(margin, H - band_h + 12, f"Site: {site}   |   Data: {date}   |   Gerado em: {ts_utc}")
         if printed_by:
-            c.drawString(margin, H - band_h + 0, f"Impresso por: {printed_by}")
+            c.drawString(margin, H - band_h + 2, f"Impresso por: {printed_by}")
         c.setFillColorRGB(0,0,0)
         c.setStrokeColorRGB(*ACCENT); c.setLineWidth(1)
         c.line(margin, H - band_h - 6, W - margin, H - band_h - 6)
