@@ -806,22 +806,11 @@ def build_report_pdf(
     y -= 16; c.setFont("Helvetica", 10)
     txt = (
         "As medições apresentadas correspondem ao Nível 5 (site-level, top-down) do framework OGMP 2.0. "
-        "Não foi realizada reconciliação com inventário L4 por ausência de dados operacionais. "
         "Os resultados servem como base para evolução ao padrão OGMP Gold Standard."
     )
     c.drawString(margin, y, txt); y -= 28
 
-    # ===== 7. Recomendações Estratégicas =====
-    c.setFont("Helvetica-Bold", 12); c.drawString(margin, y, "7) Recomendações Estratégicas")
-    y -= 16; c.setFont("Helvetica", 10)
-    for line in (
-        "• Fornecer inventário de fontes (válvulas, compressores, flare) para reconciliação L4–L5;",
-        "• Compartilhar logs de operação (ex.: flare) para reduzir incertezas;",
-        "• Estabelecer rotina de troca de dados para OGMP Gold Standard;",
-        "• Considerar campanhas combinadas (satélite + OGI/drones) para validação.",
-    ):
-        c.drawString(margin, y, line); y -= 14
-
+   
     # Rodapé
     c.setFont("Helvetica", 8); c.setFillColorRGB(0.42,0.45,0.50)
     c.drawRightString(W - margin, 12, f"pág {page_no}")
