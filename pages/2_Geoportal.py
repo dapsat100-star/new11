@@ -807,8 +807,11 @@ def build_report_pdf(
             c.drawString(margin, y, f"[Falha ao exportar gráfico: {e}]"); y -= 14
 
     # ===== 6. Classificação OGMP Preliminar =====
-    if y < 130:
+    if y < 150:
         c.showPage(); y = start_page()
+
+    # adiciona espaçamento extra antes do título
+    y -= 20
     c.setFont("Helvetica-Bold", 12); c.drawString(margin, y, "6) Classificação OGMP Preliminar")
     y -= 16; c.setFont("Helvetica", 10)
     txt = (
