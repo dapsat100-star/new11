@@ -646,7 +646,8 @@ def build_report_pdf(
         c.setFont("Helvetica", 10)
         c.drawString(margin, H - band_h + 12, f"Site: {site}   |   Data: {date}   |   Gerado em: {ts_utc}")
         if printed_by:
-            c.drawString(margin, H - band_h + 2, f"Impresso por: {printed_by}")
+            # sobe alguns pixels para manter dentro da faixa
+            c.drawString(margin, H - band_h + 6, f"Impresso por: {printed_by}")
         c.setFillColorRGB(0,0,0)
         c.setStrokeColorRGB(*ACCENT); c.setLineWidth(1)
         c.line(margin, H - band_h - 6, W - margin, H - band_h - 6)
@@ -738,7 +739,7 @@ def build_report_pdf(
         c.setFont("Helvetica-Bold", 12); c.drawString(margin, y, "4) Resultados Quantitativos (por data)")
         y -= 18; c.setFont("Helvetica", 9)
         # cabeçalho
-        headers = ["Data", "Emissão (kgCH4/h)", "Incerteza (%)", "Vento (m/s)"]
+        headers = ["Data", "Emissão (kg/h)", "Incerteza (%)", "Vento (m/s)"]
         col_w = [(W - 2*margin) * w for w in (0.22, 0.26, 0.22, 0.22)]
         x0 = margin
         # desenha header
@@ -766,6 +767,8 @@ def build_report_pdf(
         c.line(margin, y, W - margin, y); y -= 14; c.setStrokeColorRGB(0,0,0)
 
     # ===== 5. Visualizações =====
+    # Força a Seção 5 a iniciar em nova página (segunda página)
+    c.showPage(); y = start_page()
     c.setFont("Helvetica-Bold", 12); c.drawString(margin, y, "5) Visualizações")
     y -= 16
 
@@ -809,10 +812,22 @@ def build_report_pdf(
     y -= 16; c.setFont("Helvetica", 10)
     txt = (
         "As medições apresentadas correspondem ao Nível 5 (site-level, top-down) do framework OGMP 2.0. "
-            )
+        "Não foi realizada reconciliação com inventário L4 por ausência de dados operacionais. "
+        "Os resultados servem como base para evolução ao padrão OGMP Gold Standard."
+    )
     c.drawString(margin, y, txt); y -= 28
 
-   
+    # ===== 7. Recomendações Estratégicas =====
+    c.setFont("Helvetica-Bold", 12); c.drawString(margin, y, "7) Recomendações Estratégicas")
+    y -= 16; c.setFont("Helvetica", 10)
+    for line in (
+        "• Fornecer inventário de fontes (válvulas, compressores, flare) para reconciliação L4–L5;",
+        "• Compartilhar logs de operação (ex.: flare) para reduzir incertezas;",
+        "• Estabelecer rotina de troca de dados para OGMP Gold Standard;",
+        "• Considerar campanhas combinadas (satélite + OGI/drones) para validação.",
+    ):
+        c.drawString(margin, y, line); y -= 14
+
     # Rodapé
     c.setFont("Helvetica", 8); c.setFillColorRGB(0.42,0.45,0.50)
     c.drawRightString(W - margin, 12, f"pág {page_no}")
@@ -878,4 +893,3 @@ if st.button("Gerar PDF OGMP L5 (dados + gráfico)", type="primary", use_contain
         mime="application/pdf",
         use_container_width=True
     )
-
