@@ -644,10 +644,11 @@ def build_report_pdf(
         c.setFillColorRGB(1,1,1); c.setFont("Helvetica-Bold", 16)
         c.drawString(margin, H - band_h + 28, "Relatório Satelital Preliminar — OGMP 2.0 L5")
         c.setFont("Helvetica", 10)
-        c.drawString(margin, H - band_h + 12, f"Site: {site}   |   Data: {date}   |   Gerado em: {ts_utc}")
+        # Linha única para evitar corte: acrescenta "Impresso por" no mesmo baseline
+        line_txt = f"Site: {site}   |   Data: {date}   |   Gerado em: {ts_utc}"
         if printed_by:
-            # sobe alguns pixels para manter dentro da faixa
-            c.drawString(margin, H - band_h + 6, f"Impresso por: {printed_by}")
+            line_txt += f"   |   Impresso por: {printed_by}"
+        c.drawString(margin, H - band_h + 12, line_txt)
         c.setFillColorRGB(0,0,0)
         c.setStrokeColorRGB(*ACCENT); c.setLineWidth(1)
         c.line(margin, H - band_h - 6, W - margin, H - band_h - 6)
@@ -893,3 +894,4 @@ if st.button("Gerar PDF OGMP L5 (dados + gráfico)", type="primary", use_contain
         mime="application/pdf",
         use_container_width=True
     )
+
