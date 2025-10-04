@@ -735,7 +735,7 @@ def build_report_pdf(
         c.setFont("Helvetica-Bold", 12); c.drawString(margin, y, "4) Resultados Quantitativos (por data)")
         y -= 18; c.setFont("Helvetica", 9)
         # cabeçalho
-        headers = ["Data", "Emissão (kg/h)", "Incerteza (%)", "Vento (m/s)"]
+        headers = ["Data", "Emissão (kgCH4/h)", "Incerteza (%)", "Vento (m/s)"]
         col_w = [(W - 2*margin) * w for w in (0.22, 0.26, 0.22, 0.22)]
         x0 = margin
         # desenha header
