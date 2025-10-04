@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
-# pages/2_Geoportal.py
-# Geoportal — gráfico único (linha+spline opcional) + barras de incerteza + PDF com unidades
+# pages/2_Geoportal.py — versão OGMP L5
+# Geoportal — gráfico único (linha+spline opcional) + barras de incerteza + PDF OGMP L5 (com caixa de conformidade,
+# identificação da instalação, resumo da campanha, resultados por data com incerteza, visualização, classificação OGMP, recomendações)
 
 import io
 import base64
@@ -39,7 +40,7 @@ import matplotlib.pyplot as plt
 
 # ----------------- Página -----------------
 st.set_page_config(
-    page_title="Geoportal — Metano",
+    page_title="Geoportal — Metano (OGMP L5)",
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -51,7 +52,7 @@ st.markdown(
 /* Esconde o cabeçalho nativo */
 header[data-testid="stHeader"] { display: none !important; }
 
-/* Sidebar sempre visível, sem colapsar, mais larga para caber o texto completo */
+/* Sidebar sempre visível */
 section[data-testid="stSidebar"], aside[data-testid="stSidebar"] {
   display: block !important;
   visibility: visible !important;
@@ -99,7 +100,7 @@ if logo_ui_path.exists():
         unsafe_allow_html=True,
     )
 
-st.title("📷 Geoportal")
+st.title("📷 Geoportal — OGMP L5 (Site-Level)")
 
 # ---- Guard de sessão ----
 is_auth = bool(st.session_state.get("user")) or bool(st.session_state.get("authentication_status"))
@@ -444,7 +445,7 @@ with right:
 
     st.dataframe(table_df, use_container_width=True)
 
-# ======== Gráfico único: linha (spline) + barras de incerteza ========
+# ======== Série temporal — Taxa de Metano com Incerteza ========
 st.markdown("### Série temporal — Taxa de Metano com Incerteza")
 
 # séries cruas por data
@@ -570,6 +571,39 @@ def _export_fig_to_png_bytes(fig) -> Optional[bytes]:
     except Exception:
         return None
 
+# ============== NOVO: utilitários para OGMP L5 no PDF ==============
+
+def _compliance_box_lines():
+    """Linhas da caixa de conformidade OGMP L5 (usada na capa)."""
+    return [
+        "OGMP 2.0 — Conformidade (Nível de Unidade — L5)",
+        "• Detecção e quantificação site-level (top-down)",
+        "• Taxa de emissão por unidade (kg CH4/h)",
+        "• Incerteza de medição reportada",
+        "• Resolução espacial ≤ 25 × 25 m",
+        "• Limite de quantificação ≤ 100 kg CH4/h",
+        "• Estrutura compatível com OGMP L5 (sem inventário L4)"
+    ]
+
+def _draw_compliance_box(c: canvas.Canvas, x: float, y: float, w: float, h: float):
+    """Desenha a caixa de conformidade OGMP L5."""
+    BAND = (0x15/255, 0x5E/255, 0x75/255)
+    ACC  = (0xF5/255, 0x9E/255, 0x0B/255)
+    c.setLineWidth(1.2)
+    c.setStrokeColorRGB(*ACC)
+    c.roundRect(x, y - h, w, h, 8, stroke=1, fill=0)
+    c.setFont("Helvetica-Bold", 11)
+    c.setFillColorRGB(*BAND)
+    c.drawString(x + 8, y - 18, _compliance_box_lines()[0])
+    c.setFillColorRGB(0,0,0)
+    c.setFont("Helvetica", 10)
+    y2 = y - 34
+    for line in _compliance_box_lines()[1:]:
+        c.drawString(x + 12, y2, line)
+        y2 -= 14
+
+# ===================== Build PDF =====================
+
 def build_report_pdf(
     site,
     date,
@@ -580,6 +614,9 @@ def build_report_pdf(
     fig1,
     logo_rel_path: str = LOGO_REL_PATH,
     satellite: Optional[str] = None,
+    series_table: Optional[pd.DataFrame] = None,
+    lat: Optional[float] = None,
+    lon: Optional[float] = None,
 ) -> bytes:
     BAND   = (0x15/255, 0x5E/255, 0x75/255)
     ACCENT = (0xF5/255, 0x9E/255, 0x0B/255)
@@ -604,7 +641,7 @@ def build_report_pdf(
                           logo_img=logo_img, lw=logo_w, lh=logo_h, max_w=90, max_h=42)
         ts_utc = datetime.now(timezone.utc).strftime('%d/%m/%Y %H:%M UTC')
         c.setFillColorRGB(1,1,1); c.setFont("Helvetica-Bold", 16)
-        c.drawString(margin, H - band_h + 28, "Relatório Geoportal de Metano")
+        c.drawString(margin, H - band_h + 28, "Relatório Satelital Preliminar — OGMP 2.0 L5")
         c.setFont("Helvetica", 10)
         c.drawString(margin, H - band_h + 12, f"Site: {site}   |   Data: {date}   |   Gerado em: {ts_utc}")
         c.setFillColorRGB(0,0,0)
@@ -615,7 +652,31 @@ def build_report_pdf(
 
     y = start_page()
 
-    # helpers de formatação
+    # ===== CAPA: Caixa de conformidade OGMP L5 =====
+    _draw_compliance_box(c, x=margin, y=y, w=W - 2*margin, h=110)
+    y -= (110 + 16)
+
+    # ===== 1. Identificação da Instalação =====
+    c.setFont("Helvetica-Bold", 12); c.drawString(margin, y, "1) Identificação da Instalação")
+    y -= 16; c.setFont("Helvetica", 10)
+    loc_txt = f"Lat {lat} / Lon {lon}" if (lat is not None and lon is not None) else "—"
+    for line in (
+        f"• Nome: {site}",
+        f"• Tipo: Unidade (site-level)",
+        f"• Localização: {loc_txt}",
+        f"• Período da campanha: {date}",
+        f"• Responsável: MAVIPE Space Systems",
+        f"• Satélite: {satellite or '—'}",
+    ):
+        c.drawString(margin, y, line); y -= 14
+
+    y -= 6; c.setStrokeColorRGB(*ACCENT); c.setLineWidth(0.7)
+    c.line(margin, y, W - margin, y); y -= 14; c.setStrokeColorRGB(0,0,0)
+
+    # ===== 2. Métricas (com unidades) =====
+    c.setFont("Helvetica-Bold", 12); c.drawString(margin, y, "2) Métricas")
+    y -= 16; c.setFont("Helvetica", 10)
+
     def _is_na(v) -> bool:
         from math import isnan
         if v is None: return True
@@ -640,21 +701,72 @@ def build_report_pdf(
     def _fmt_txt(v) -> str:
         return "—" if _is_na(v) or str(v).strip() == "" else str(v)
 
-    # Métricas (com unidades)
-    c.setFont("Helvetica-Bold", 12); c.drawString(margin, y, "Métricas"); y -= 16
-    c.setFont("Helvetica", 11)
     for line in (
-        f"• Taxa Metano: {_fmt_num(taxa, 'kgCH4/hr')}",
+        f"• Taxa Metano (seleção atual): {_fmt_num(taxa, 'kgCH4/hr')}",
         f"• Incerteza: {_fmt_pct(inc)}",
-        f"• Velocidade do Vento: {_fmt_num(vento, 'm/s')}",
-        f"• Satélite: {_fmt_txt(satellite)}",
+        f"• Vento: {_fmt_num(vento, 'm/s')}",
     ):
         c.drawString(margin, y, line); y -= 14
 
-    y -= 10; c.setStrokeColorRGB(*ACCENT); c.setLineWidth(0.7)
+    y -= 6; c.setStrokeColorRGB(*ACCENT); c.setLineWidth(0.7)
     c.line(margin, y, W - margin, y); y -= 14; c.setStrokeColorRGB(0,0,0)
 
-    # Figura 1 — Imagem principal (se houver) + legenda
+    # ===== 3. Resumo da Campanha =====
+    c.setFont("Helvetica-Bold", 12); c.drawString(margin, y, "3) Resumo da Campanha")
+    y -= 16; c.setFont("Helvetica", 10)
+    # estatísticas simples da série (se houver)
+    passes = int(series_table.shape[0]) if (series_table is not None) else 0
+    mean_val = series_table['kg_h'].mean() if (series_table is not None and 'kg_h' in series_table.columns) else None
+    lines = [
+        f"• Nº de passagens/dias com dados: {passes}",
+        f"• Cobertura: Site e entorno imediato (raio ~5 km)",
+        f"• Condições atmosféricas: vento médio reportado por passagem (ver tabela)",
+    ]
+    for ln in lines:
+        c.drawString(margin, y, ln); y -= 14
+    if mean_val is not None:
+        c.drawString(margin, y, f"• Emissão média (kg/h) nas passagens: {mean_val:.0f}"); y -= 14
+
+    y -= 6; c.setStrokeColorRGB(*ACCENT); c.setLineWidth(0.7)
+    c.line(margin, y, W - margin, y); y -= 14; c.setStrokeColorRGB(0,0,0)
+
+    # ===== 4. Resultados por data (tabela) =====
+    if series_table is not None and not series_table.empty:
+        c.setFont("Helvetica-Bold", 12); c.drawString(margin, y, "4) Resultados Quantitativos (por data)")
+        y -= 18; c.setFont("Helvetica", 9)
+        # cabeçalho
+        headers = ["Data", "Emissão (kg/h)", "Incerteza (%)", "Vento (m/s)"]
+        col_w = [(W - 2*margin) * w for w in (0.22, 0.26, 0.22, 0.22)]
+        x0 = margin
+        # desenha header
+        c.setFillColorRGB(0.95,0.95,0.95)
+        c.rect(x0, y - 14, sum(col_w), 16, fill=1, stroke=0)
+        c.setFillColorRGB(0,0,0)
+        for i,h in enumerate(headers):
+            c.drawString(x0 + sum(col_w[:i]) + 4, y - 2, h)
+        y -= 20
+        # linhas
+        for _, row in series_table.iterrows():
+            if y < 80:  # quebra de página
+                c.showPage(); y = start_page()
+            vals = [
+                str(row.get('data','')),
+                f"{row.get('kg_h','')}",
+                f"{row.get('incerteza','')}",
+                f"{row.get('vento','')}",
+            ]
+            for i,v in enumerate(vals):
+                c.drawString(x0 + sum(col_w[:i]) + 4, y, str(v))
+            y -= 14
+        y -= 8
+        c.setStrokeColorRGB(*ACCENT); c.setLineWidth(0.7)
+        c.line(margin, y, W - margin, y); y -= 14; c.setStrokeColorRGB(0,0,0)
+
+    # ===== 5. Visualizações =====
+    c.setFont("Helvetica-Bold", 12); c.drawString(margin, y, "5) Visualizações")
+    y -= 16
+
+    # Figura 1 — Imagem principal (se houver)
     if img_url:
         main_img, iw, ih = _image_reader_from_url(img_url)
         if main_img:
@@ -664,10 +776,10 @@ def build_report_pdf(
                 c.showPage(); y = start_page()
             c.drawImage(main_img, margin, y - h, width=w, height=h, mask='auto')
             c.setFont("Helvetica-Oblique", 9)
-            c.drawString(margin, y - h - 12, "Figura 1 - Concentração de Metano em ppb")
+            c.drawString(margin, y - h - 12, "Figura 1 - Concentração/Pluma de Metano (imagem de referência)")
             y -= h + 26
 
-    # Figura 2 — Gráfico + legenda
+    # Figura 2 — Gráfico (série temporal)
     if fig1 is not None:
         try:
             png1 = _export_fig_to_png_bytes(fig1)
@@ -681,11 +793,34 @@ def build_report_pdf(
                 c.showPage(); y = start_page()
             c.drawImage(img1, margin, y - h, width=w, height=h, mask='auto')
             c.setFont("Helvetica-Oblique", 9)
-            c.drawString(margin, y - h - 12, "Figura 2 - Série Histórica de Concentração de Metano")
+            c.drawString(margin, y - h - 12, "Figura 2 - Série Histórica de Taxa de Metano (kg/h) com incerteza")
             y -= h + 26
         except Exception as e:
             c.setFont("Helvetica", 9)
             c.drawString(margin, y, f"[Falha ao exportar gráfico: {e}]"); y -= 14
+
+    # ===== 6. Classificação OGMP Preliminar =====
+    if y < 130:
+        c.showPage(); y = start_page()
+    c.setFont("Helvetica-Bold", 12); c.drawString(margin, y, "6) Classificação OGMP Preliminar")
+    y -= 16; c.setFont("Helvetica", 10)
+    txt = (
+        "As medições apresentadas correspondem ao Nível 5 (site-level, top-down) do framework OGMP 2.0. "
+        "Não foi realizada reconciliação com inventário L4 por ausência de dados operacionais. "
+        "Os resultados servem como base para evolução ao padrão OGMP Gold Standard."
+    )
+    c.drawString(margin, y, txt); y -= 28
+
+    # ===== 7. Recomendações Estratégicas =====
+    c.setFont("Helvetica-Bold", 12); c.drawString(margin, y, "7) Recomendações Estratégicas")
+    y -= 16; c.setFont("Helvetica", 10)
+    for line in (
+        "• Fornecer inventário de fontes (válvulas, compressores, flare) para reconciliação L4–L5;",
+        "• Compartilhar logs de operação (ex.: flare) para reduzir incertezas;",
+        "• Estabelecer rotina de troca de dados para OGMP Gold Standard;",
+        "• Considerar campanhas combinadas (satélite + OGI/drones) para validação.",
+    ):
+        c.drawString(margin, y, line); y -= 14
 
     # Rodapé
     c.setFont("Helvetica", 8); c.setFillColorRGB(0.42,0.45,0.50)
@@ -697,6 +832,33 @@ def build_report_pdf(
 
 # ===================== Exportar PDF (UI) =====================
 
+# Monta pequena tabela de resultados por data (usa coluna de vento se existir)
+results_table = None
+if not series_raw_val.empty:
+    # pega até 12 pontos mais recentes
+    s_val = series_raw_val.copy().sort_values("date")
+    s_unc = series_raw_unc.copy().sort_values("date") if not series_raw_unc.empty else None
+    tail_n = min(12, len(s_val))
+    s_val = s_val.tail(tail_n)
+    if s_unc is not None:
+        # join por data, se houver incerteza
+        s_all = pd.merge(s_val, s_unc, on="date", how="left", suffixes=("_val","_unc"))
+    else:
+        s_all = s_val.copy(); s_all["value_unc"] = np.nan
+    # tenta achar vento por data (se existir como série)
+    series_raw_wind = extract_series(dfi, date_cols_sorted, stamps_sorted, row_name="Velocidade do Vento")
+    if not series_raw_wind.empty:
+        s_all = pd.merge(s_all, series_raw_wind.rename(columns={"value":"wind"}), on="date", how="left")
+    else:
+        s_all["wind"] = np.nan
+    # formata
+    results_table = pd.DataFrame({
+        "data": s_all["date"].dt.strftime("%d/%m/%Y"),
+        "kg_h": s_all["value_val"].round(0),
+        "incerteza": s_all["value_unc"].round(0),
+        "vento": s_all["wind"].round(1)
+    })
+
 with right:
     taxa      = get_from_dfi(dfi, selected_col, "Taxa Metano", "Taxa de Metano", "Fluxo Metano", "Fluxo CH4")
     inc       = get_from_dfi(dfi, selected_col, "Incerteza", "Incerteza (%)", "Erro", "Uncertainty")
@@ -706,19 +868,21 @@ with right:
 img_url = resolve_image_target(rec.get("Imagem"))
 
 st.markdown("---")
-st.subheader("📄 Exportar PDF")
-st.caption("Relatório com faixa superior, logo, métricas (com unidades), imagem e o gráfico atual. Timestamp em UTC.")
+st.subheader("📄 Exportar PDF (OGMP L5)")
+st.caption("Relatório OGMP L5: capa com caixa de conformidade, identificação, resumo, resultados por data, visualizações, classificação e recomendações.")
 
-if st.button("Gerar PDF (dados + gráfico)", type="primary", use_container_width=True):
+if st.button("Gerar PDF OGMP L5 (dados + gráfico)", type="primary", use_container_width=True):
     pdf_bytes = build_report_pdf(
         site=site, date=selected_label, taxa=taxa, inc=inc, vento=vento,
         img_url=img_url, fig1=fig_line,
-        logo_rel_path=LOGO_REL_PATH, satellite=satellite
+        logo_rel_path=LOGO_REL_PATH, satellite=satellite,
+        series_table=results_table,
+        lat=rec.get("_lat"), lon=rec.get("_long")
     )
     st.download_button(
-        label="⬇️ Baixar PDF",
+        label="⬇️ Baixar PDF (OGMP L5)",
         data=pdf_bytes,
-        file_name=f"relatorio_geoportal_{site}_{selected_label}.pdf".replace(" ", "_"),
+        file_name=f"relatorio_geoportal_OGMP_L5_{site}_{selected_label}.pdf".replace(" ", "_"),
         mime="application/pdf",
         use_container_width=True
     )
