@@ -8,9 +8,9 @@
     "marcio": {
       "name": "Marcio Perassoli",
       "email": "marcio.perassoli@dapsat.com",
-     "password": "$2b$12$WbD9k2i1Wk5vWvExxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
-  "must_change": false
-},
+      "password": "$2b$12$OozG3b.TscYBAV40JbdGR.k.VcwpoGHdEJFzWuCDYDJOwZdhbHdMi",
+      "must_change": false
+    },
     "abilio": {
       "name": "Abilio Garcia",
       "email": "abilio.garcia@dapsat.com",
