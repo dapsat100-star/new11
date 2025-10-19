@@ -14,6 +14,22 @@ from dotenv import load_dotenv
 from PIL import Image
 
 # =============================================================================
+# Segredos (compatível com secrets.toml E variáveis de ambiente)
+# =============================================================================
+load_dotenv()  # permite ler variáveis do .env em dev local
+
+def get_secret(key: str, default: str = "") -> str:
+    """
+    Lê segredos de forma tolerante:
+    - tenta st.secrets (se .streamlit/secrets.toml existir)
+    - senão, usa variável de ambiente (KEY em MAIÚSCULAS)
+    """
+    try:
+        return st.secrets.get(key, default)
+    except Exception:
+        return os.getenv(key.upper(), default)
+
+# =============================================================================
 # Config inicial
 # =============================================================================
 st.set_page_config(
@@ -22,7 +38,6 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="collapsed",
 )
-load_dotenv()
 
 # =============================================================================
 # Util: data-uri para imagens locais (bandeiras e background)
@@ -234,11 +249,11 @@ st.markdown(
 )
 
 # =============================================================================
-# GitHub helpers – users.json
+# GitHub helpers – users.json (AGORA USANDO get_secret)
 # =============================================================================
-GITHUB_TOKEN  = st.secrets.get("github_token", "")
-REPO_USERS    = st.secrets.get("repo_users", "")
-GITHUB_BRANCH = st.secrets.get("github_branch", "main")
+GITHUB_TOKEN  = get_secret("github_token", "")
+REPO_USERS    = get_secret("repo_users", "")            # ex.: "mavipe-space/users-config"
+GITHUB_BRANCH = get_secret("github_branch", "main")
 USERS_FILE    = "users.json"
 
 HEADERS = {"Accept": "application/vnd.github+json"}
