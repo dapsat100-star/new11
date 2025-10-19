@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
-# app.py – Login + i18n com bandeiras (sem abrir nova aba) + background + troca de senha (users.json no GitHub)
+# app.py – Login + i18n com bandeiras (mesma aba) + background + troca de senha (users.json no GitHub)
+# Suporta REPO com subpasta (ex.: "owner/repo/subpasta") e segredos via secrets.toml OU variáveis de ambiente.
 
 import os
 import json
@@ -249,32 +250,56 @@ st.markdown(
 )
 
 # =============================================================================
-# GitHub helpers – users.json (AGORA USANDO get_secret)
+# GitHub helpers – users.json (SUPORTA subpasta em REPO)
 # =============================================================================
-GITHUB_TOKEN  = get_secret("github_token", "")
-REPO_USERS    = get_secret("repo_users", "")            # ex.: "mavipe-space/users-config"
-GITHUB_BRANCH = get_secret("github_branch", "main")
-USERS_FILE    = "users.json"
+GITHUB_TOKEN      = get_secret("github_token", "")
+REPO_USERS        = get_secret("repo_users", "")            # ex.: "owner/repo" OU "owner/repo/subpasta"
+REPO_CRONOGRAMA   = get_secret("REPO_CRONOGRAMA", "")       # se usar outro repo p/ dados
+GITHUB_BRANCH     = get_secret("github_branch", "main")
+GH_DATA_ROOT      = get_secret("GH_DATA_ROOT", "data/validado")
+USERS_FILE        = "users.json"
 
 HEADERS = {"Accept": "application/vnd.github+json"}
 if GITHUB_TOKEN:
     HEADERS["Authorization"] = f"Bearer {GITHUB_TOKEN}"
 
+def _split_repo_and_base(repo: str) -> tuple[str, str]:
+    """
+    Permite usar:
+    - "owner/repo"               → sem subpasta
+    - "owner/repo/sub/dir"       → com subpasta (base = "sub/dir")
+    """
+    parts = repo.split("/")
+    if len(parts) < 2:
+        return repo, ""
+    owner_repo = "/".join(parts[:2])
+    base = "/".join(parts[2:])  # "" se não houver subpasta
+    return owner_repo, base
+
 def _gh_open_json(repo: str, path: str) -> Tuple[Dict[str, Any], Optional[str]]:
     if not repo:
         return {}, None
-    url = f"https://api.github.com/repos/{repo}/contents/{path}?ref={GITHUB_BRANCH}"
+    owner_repo, base = _split_repo_and_base(repo)
+    full_path = f"{base}/{path}" if base else path
+    url = f"https://api.github.com/repos/{owner_repo}/contents/{full_path}?ref={GITHUB_BRANCH}"
     r = requests.get(url, headers=HEADERS, timeout=20)
     if r.status_code == 200:
         payload = r.json()
         content = base64.b64decode(payload["content"]).decode("utf-8")
         return json.loads(content), payload.get("sha")
+    # Diagnóstico não intrusivo
+    try:
+        st.warning(f"Falha ao acessar {full_path} em {owner_repo} (HTTP {r.status_code})")
+    except Exception:
+        pass
     return {}, None
 
 def _gh_save_json(repo: str, path: str, content: dict, message: str, sha: Optional[str]) -> bool:
     if not repo:
         return False
-    url = f"https://api.github.com/repos/{repo}/contents/{path}"
+    owner_repo, base = _split_repo_and_base(repo)
+    full_path = f"{base}/{path}" if base else path
+    url = f"https://api.github.com/repos/{owner_repo}/contents/{full_path}"
     payload = {
         "message": message,
         "content": base64.b64encode(json.dumps(content, indent=2).encode()).decode(),
@@ -283,7 +308,13 @@ def _gh_save_json(repo: str, path: str, content: dict, message: str, sha: Option
     if sha:
         payload["sha"] = sha
     r = requests.put(url, headers=HEADERS, json=payload, timeout=30)
-    return r.status_code in (200, 201)
+    ok = r.status_code in (200, 201)
+    if not ok:
+        try:
+            st.error(f"Falha ao salvar {full_path} em {owner_repo} (HTTP {r.status_code})")
+        except Exception:
+            pass
+    return ok
 
 def load_users():
     return _gh_open_json(REPO_USERS, USERS_FILE)
