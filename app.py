@@ -257,7 +257,8 @@ REPO_USERS        = get_secret("repo_users", "")            # ex.: "owner/repo" 
 REPO_CRONOGRAMA   = get_secret("REPO_CRONOGRAMA", "")       # se usar outro repo p/ dados
 GITHUB_BRANCH     = get_secret("github_branch", "main")
 GH_DATA_ROOT      = get_secret("GH_DATA_ROOT", "data/validado")
-USERS_FILE        = "users.json"
+USERS_FILE        = "new11/users.json"
+
 
 HEADERS = {"Accept": "application/vnd.github+json"}
 if GITHUB_TOKEN:
