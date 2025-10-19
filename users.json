@@ -6,11 +6,11 @@
   },
   "users": {
     "marcio": {
-      "name": "Marcio Perassoli",
-      "email": "marcio.perassoli@dapsat.com",
-      "password": "$2b$12$OozG3b.TscYBAV40JbdGR.k.VcwpoGHdEJFzWuCDYDJOwZdhbHdMi",
-      "must_change": false
-    },
+  "name": "Marcio Perassoli",
+  "email": "marcio.perassoli@dapsat.com",
+  "password": "$2b$12$7YgLUZz8ElkyDb6g8r7yyunc7Yqto3dnNJqE8Ih77MMQv2jRhpFMe",
+  "must_change": true
+},
     "abilio": {
       "name": "Abilio Garcia",
       "email": "abilio.garcia@dapsat.com",
